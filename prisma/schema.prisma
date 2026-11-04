@@ -1,0 +1,417 @@
+// TQ Finance — PT. Total Quality Indonesia
+// Database Schema — Prisma + PostgreSQL (lokal: Laragon / produksi: Supabase)
+// Nominal uang memakai Decimal(18,2); tanggal bisnis disimpan sebagai tengah malam UTC.
+
+generator client {
+  provider   = "prisma-client-js"
+  engineType = "library"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── SISTEM: PENGGUNA, AUDIT, PARAMETER ──────────────────────────────────────
+
+model User {
+  id             String    @id @default(cuid())
+  name           String
+  email          String    @unique
+  password       String
+  role           String // MANAJER_KEUANGAN | STAF_KEUANGAN | PIMPINAN
+  isActive       Boolean   @default(true)
+  sessionVersion Int       @default(0)
+  lastLoginAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  notifications Notification[]
+  auditLogs     AuditLog[]
+}
+
+model LoginAttempt {
+  key      String   @id
+  attempts Int      @default(0)
+  resetAt  DateTime
+
+  @@index([resetAt])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  actorName String
+  action    String // CREATE | UPDATE | DELETE | VOID | POST | EXPORT | CLOSE
+  module    String
+  recordId  String?
+  before    Json?
+  after     Json?
+  note      String?
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id])
+
+  @@index([module, createdAt])
+  @@index([recordId])
+}
+
+model Setting {
+  key       String   @id
+  value     Json
+  updatedBy String?
+  updatedAt DateTime @updatedAt
+}
+
+model Sequence {
+  key   String @id
+  value Int    @default(0)
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  type      String // INVOICE_DUE | BILL_DUE | TAX_DUE | ASSET_DEPRECIATION
+  title     String
+  body      String
+  link      String?
+  severity  String    @default("INFO") // INFO | WARNING | DANGER
+  dedupeKey String
+  dueDate   DateTime?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, readAt, createdAt])
+}
+
+// ─── MASTER DATA ─────────────────────────────────────────────────────────────
+
+// Bagan akun. Akun grup (isGroup) hanya judul; jurnal selalu ke akun detail.
+model Account {
+  id            String   @id @default(cuid())
+  code          String   @unique
+  name          String
+  // ASSET | LIABILITY | EQUITY | REVENUE | COST | EXPENSE | OTHER_INCOME | OTHER_EXPENSE | INCOME_TAX
+  type          String
+  normalBalance String // DEBIT | CREDIT
+  isGroup       Boolean  @default(false)
+  level         Int      @default(3)
+  isCash        Boolean  @default(false) // kas & bank
+  isActive      Boolean  @default(true)
+  description   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  lines JournalLine[]
+}
+
+// Klien (perusahaan yang dilayani), vendor, dan tenaga ahli/asosiasi.
+model Contact {
+  id              String   @id @default(cuid())
+  code            String   @unique
+  type            String // CLIENT | VENDOR | ASSOCIATE
+  name            String
+  npwp            String?
+  isPkp           Boolean  @default(false)
+  pic             String?
+  email           String?
+  phone           String?
+  address         String?
+  city            String?
+  industry        String?
+  paymentTermDays Int      @default(30)
+  bankName        String?
+  bankAccount     String?
+  bankHolder      String?
+  notes           String?
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  projects Project[]
+  invoices Invoice[]
+  bills    Bill[]
+}
+
+// Proyek/kontrak jasa konsultan sebagai pusat biaya & pendapatan.
+model Project {
+  id            String    @id @default(cuid())
+  code          String    @unique
+  name          String
+  clientId      String
+  serviceType   String // KONSULTANSI | AUDIT | PELATIHAN | SERTIFIKASI | ELEARNING | LAINNYA
+  standard      String? // mis. ISO 9001:2015
+  contractNo    String?
+  contractDate  DateTime?
+  contractValue Decimal   @default(0) @db.Decimal(18, 2)
+  budgetCost    Decimal   @default(0) @db.Decimal(18, 2)
+  startDate     DateTime
+  endDate       DateTime?
+  manager       String?
+  status        String    @default("AKTIF") // AKTIF | DITAHAN | SELESAI | BATAL
+  description   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  client     Contact            @relation(fields: [clientId], references: [id])
+  milestones ProjectMilestone[]
+  invoices   Invoice[]
+  bills      Bill[]
+  lines      JournalLine[]
+}
+
+// Termin penagihan kontrak (DP, progres, pelunasan).
+model ProjectMilestone {
+  id        String    @id @default(cuid())
+  projectId String
+  sequence  Int
+  name      String
+  percent   Decimal   @default(0) @db.Decimal(7, 4)
+  amount    Decimal   @default(0) @db.Decimal(18, 2)
+  dueDate   DateTime?
+  invoiceId String?   @unique
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  invoice   Invoice?  @relation(fields: [invoiceId], references: [id])
+
+  @@index([projectId])
+}
+
+// Pajak dinamis (seperti dbg-finance): ADDITION menambah tagihan (PPN), DEDUCTION memotong (PPh).
+model Tax {
+  id        String   @id @default(cuid())
+  code      String   @unique // PPN | PPH23 | PPH21 | PPH4_2 | ...
+  name      String
+  rate      Decimal  @db.Decimal(7, 4)
+  type      String // ADDITION | DEDUCTION
+  appliesTo String   @default("BOTH") // SALES | PURCHASE | BOTH
+  // Akun penjualan (mis. PPN Keluaran / PPh 23 Dibayar Dimuka) dan pembelian (PPN Masukan / Hutang PPh 23).
+  salesAccountId    String?
+  purchaseAccountId String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ─── TRANSAKSI ───────────────────────────────────────────────────────────────
+
+model Invoice {
+  id               String    @id @default(cuid())
+  number           String    @unique
+  clientId         String
+  projectId        String?
+  date             DateTime
+  dueDate          DateTime
+  reference        String? // No. PO / SPK klien
+  taxInvoiceNo     String? // No. Faktur Pajak
+  items            Json // [{description, quantity, unit, unitPrice, total}]
+  revenueAccountId String
+  receivableAccountId String
+  subtotal         Decimal   @db.Decimal(18, 2)
+  discount         Decimal   @default(0) @db.Decimal(18, 2)
+  appliedTaxes     Json // [{taxId, code, name, rate, type, accountId, amount}]
+  taxAdd           Decimal   @default(0) @db.Decimal(18, 2)
+  taxDeduct        Decimal   @default(0) @db.Decimal(18, 2)
+  total            Decimal   @db.Decimal(18, 2) // yang harus dibayar klien
+  paid             Decimal   @default(0) @db.Decimal(18, 2)
+  status           String    @default("UNPAID") // UNPAID | PARTIAL | PAID | VOID
+  notes            String?
+  journalId        String?   @unique
+  voidReason       String?
+  createdBy        String
+  creatorName      String
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  client    Contact           @relation(fields: [clientId], references: [id])
+  project   Project?          @relation(fields: [projectId], references: [id])
+  payments  InvoicePayment[]
+  milestone ProjectMilestone?
+
+  @@index([status, dueDate])
+  @@index([clientId])
+}
+
+model InvoicePayment {
+  id            String   @id @default(cuid())
+  invoiceId     String
+  number        String   @unique
+  date          DateTime
+  cashAccountId String
+  amount        Decimal  @db.Decimal(18, 2)
+  bankFee       Decimal  @default(0) @db.Decimal(18, 2)
+  notes         String?
+  journalId     String   @unique
+  createdBy     String
+  createdAt     DateTime @default(now())
+  invoice       Invoice  @relation(fields: [invoiceId], references: [id])
+
+  @@index([invoiceId])
+}
+
+model Bill {
+  id               String   @id @default(cuid())
+  number           String   @unique
+  vendorRef        String? // nomor tagihan dari vendor
+  vendorId         String
+  projectId        String?
+  date             DateTime
+  dueDate          DateTime
+  items            Json // [{description, accountId, quantity, unitPrice, total}]
+  payableAccountId String
+  subtotal         Decimal  @db.Decimal(18, 2)
+  appliedTaxes     Json
+  taxAdd           Decimal  @default(0) @db.Decimal(18, 2)
+  taxDeduct        Decimal  @default(0) @db.Decimal(18, 2)
+  total            Decimal  @db.Decimal(18, 2) // yang harus dibayar ke vendor
+  paid             Decimal  @default(0) @db.Decimal(18, 2)
+  status           String   @default("UNPAID") // UNPAID | PARTIAL | PAID | VOID
+  notes            String?
+  journalId        String?  @unique
+  voidReason       String?
+  createdBy        String
+  creatorName      String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  vendor   Contact       @relation(fields: [vendorId], references: [id])
+  project  Project?      @relation(fields: [projectId], references: [id])
+  payments BillPayment[]
+
+  @@index([status, dueDate])
+  @@index([vendorId])
+}
+
+model BillPayment {
+  id            String   @id @default(cuid())
+  billId        String
+  number        String   @unique
+  date          DateTime
+  cashAccountId String
+  amount        Decimal  @db.Decimal(18, 2)
+  notes         String?
+  journalId     String   @unique
+  createdBy     String
+  createdAt     DateTime @default(now())
+  bill          Bill     @relation(fields: [billId], references: [id])
+
+  @@index([billId])
+}
+
+// Kas & bank di luar piutang/hutang: penerimaan, pengeluaran, transfer antar rekening.
+model CashTransaction {
+  id            String   @id @default(cuid())
+  number        String   @unique
+  type          String // IN | OUT | TRANSFER
+  date          DateTime
+  cashAccountId String
+  toAccountId   String? // tujuan transfer
+  projectId     String?
+  counterparty  String?
+  description   String
+  lines         Json // [{accountId, description, amount}]
+  amount        Decimal  @db.Decimal(18, 2)
+  journalId     String   @unique
+  createdBy     String
+  creatorName   String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([date])
+}
+
+model TaxPayment {
+  id            String   @id @default(cuid())
+  number        String   @unique
+  taxCode       String // PPH21 | PPH23 | PPH4_2 | PPN | PPH25 | PPH29
+  period        String // YYYY-MM masa pajak
+  date          DateTime
+  cashAccountId String
+  taxAccountId  String // akun hutang pajak yang dilunasi
+  amount        Decimal  @db.Decimal(18, 2)
+  billingCode   String?
+  ntpn          String?
+  notes         String?
+  journalId     String   @unique
+  createdBy     String
+  createdAt     DateTime @default(now())
+
+  @@index([period])
+}
+
+model FixedAsset {
+  id               String    @id @default(cuid())
+  code             String    @unique
+  name             String
+  category         String // KOMPUTER | PERALATAN | FURNITUR | KENDARAAN | BANGUNAN | LAINNYA
+  acquisitionDate  DateTime
+  cost             Decimal   @db.Decimal(18, 2)
+  residualValue    Decimal   @default(0) @db.Decimal(18, 2)
+  usefulLifeMonths Int
+  assetAccountId   String
+  accumAccountId   String
+  expenseAccountId String
+  location         String?
+  status           String    @default("AKTIF") // AKTIF | DILEPAS
+  disposedAt       DateTime?
+  notes            String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  depreciations AssetDepreciation[]
+}
+
+model AssetDepreciation {
+  id        String     @id @default(cuid())
+  assetId   String
+  period    String // YYYY-MM
+  amount    Decimal    @db.Decimal(18, 2)
+  journalId String
+  createdAt DateTime   @default(now())
+  asset     FixedAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([assetId, period])
+}
+
+// ─── BUKU BESAR ──────────────────────────────────────────────────────────────
+
+model Journal {
+  id          String   @id @default(cuid())
+  number      String   @unique
+  date        DateTime
+  description String
+  reference   String?
+  // MANUAL | OPENING | INVOICE | INVOICE_PAYMENT | BILL | BILL_PAYMENT | CASH | TAX_PAYMENT | DEPRECIATION
+  source      String   @default("MANUAL")
+  sourceId    String?
+  totalDebit  Decimal  @db.Decimal(18, 2)
+  totalCredit Decimal  @db.Decimal(18, 2)
+  createdBy   String
+  creatorName String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  lines JournalLine[]
+
+  @@index([date])
+  @@index([source, sourceId])
+}
+
+model JournalLine {
+  id          String   @id @default(cuid())
+  journalId   String
+  date        DateTime // salinan tanggal jurnal untuk agregasi laporan
+  accountId   String
+  projectId   String?
+  description String?
+  debit       Decimal  @default(0) @db.Decimal(18, 2)
+  credit      Decimal  @default(0) @db.Decimal(18, 2)
+  sort        Int      @default(0)
+
+  journal Journal  @relation(fields: [journalId], references: [id], onDelete: Cascade)
+  account Account  @relation(fields: [accountId], references: [id])
+  project Project? @relation(fields: [projectId], references: [id])
+
+  @@index([accountId, date])
+  @@index([projectId])
+  @@index([date])
+}

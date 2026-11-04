@@ -1,0 +1,54 @@
+{
+  "name": "tq-finance",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "prisma generate && next build",
+    "start": "next start",
+    "lint": "eslint",
+    "seed": "node --env-file=.env prisma/seed.js",
+    "seed:demo": "node --env-file=.env prisma/seed-demo.js",
+    "db:migrate": "node --env-file-if-exists=.env node_modules/prisma/build/index.js migrate deploy",
+    "db:migrate:dev": "node --env-file-if-exists=.env node_modules/prisma/build/index.js migrate dev",
+    "db:status": "node --env-file-if-exists=.env node_modules/prisma/build/index.js migrate status",
+    "postinstall": "prisma generate",
+    "test": "node --test tests/*.test.mjs",
+    "verify": "npm run lint && npm test && npm run build",
+    "db:migrate:production": "node --env-file=.env.migrations.production.local node_modules/prisma/build/index.js migrate deploy",
+    "db:status:production": "node --env-file=.env.migrations.production.local node_modules/prisma/build/index.js migrate status",
+    "seed:production": "node --env-file=.env.runtime.production.local --env-file=.env.admin.production.local prisma/seed.js"
+  },
+  "type": "module",
+  "prisma": {
+    "seed": "node prisma/seed.js"
+  },
+  "dependencies": {
+    "@prisma/adapter-pg": "^7.9.1",
+    "@prisma/client": "^7.8.0",
+    "bcryptjs": "^3.0.3",
+    "framer-motion": "^13.3.0",
+    "lucide-react": "^1.21.0",
+    "next": "16.4.1",
+    "next-auth": "5.0.0-beta.32",
+    "pg": "^8.23.0",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "recharts": "^3.8.1",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/pg": "^8.20.0",
+    "eslint": "^9",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "prisma": "^7.8.0"
+  },
+  "engines": {
+    "node": "22.x"
+  },
+  "overrides": {
+    "deepmerge-ts": "^8.0.2"
+  }
+}
