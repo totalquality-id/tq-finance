@@ -34,6 +34,7 @@ export default function LoginClient() {
         <div className="login-logo">
           <Image src="/brand/tq-logo.png" alt="Logo Total Quality" width={150} height={88} priority style={{ height: 80, width: 'auto' }} />
         </div>
+        <h1 className="login-title" style={{ marginBottom: 24 }}>TQ Finance</h1>
 
         {error && (
           <div className="alert alert-danger" role="alert" style={{ marginBottom: 18, display: 'flex', gap: 10, alignItems: 'flex-start' }}>

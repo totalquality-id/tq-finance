@@ -33,6 +33,14 @@ function createPrismaClient() {
   }).$extends({ query: { async $allOperations({ args, query }) { return serialize(await query(args)); } } });
 }
 
-export const prisma = globalForPrisma.prisma ?? createPrismaClient();
+// Klien dibuat saat pertama dipakai (bukan saat modul diimpor) agar build Next.js
+// tidak membutuhkan DATABASE_URL ketika mengumpulkan data halaman/route.
+const client = () => (globalForPrisma.prisma ??= createPrismaClient());
 
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
+export const prisma = new Proxy({}, {
+  get(_, key) {
+    const c = client();
+    const value = c[key];
+    return typeof value === 'function' ? value.bind(c) : value;
+  },
+});
