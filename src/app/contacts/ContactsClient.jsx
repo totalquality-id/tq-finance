@@ -2,9 +2,8 @@
 
 import { useState } from 'react';
 import { Plus, Edit, Trash2 } from 'lucide-react';
-import { Badge, DataTable, FilterBar, FormFields, Modal, Pager, TabBar, useSubmit } from '@/components/ui';
+import { Badge, DataTable, FilterBar, FormFields, Modal, Pager, SectionTabs, useSubmit } from '@/components/ui';
 import { useDialog } from '@/components/DialogProvider';
-import { tabsFor } from '@/lib/module-tabs';
 import { idr, labelOf } from '@/lib/labels';
 
 const EMPTY = { name: '', npwp: '', isPkp: false, pic: '', email: '', phone: '', address: '', city: '', industry: '', paymentTermDays: 30, bankName: '', bankAccount: '', bankHolder: '', notes: '', isActive: true };
@@ -14,6 +13,8 @@ export default function ContactsClient({ data, tab, page, canEdit }) {
   const { showConfirm } = useDialog();
   const [form, setForm] = useState(null);
   const isClient = tab === 'CLIENT';
+  // "Copart" adalah istilah TQ (huruf besar), jenis lain ditulis kecil dalam kalimat.
+  const noun = (t) => (t === 'CLIENT' ? labelOf(t) : labelOf(t).toLowerCase());
 
   const save = async (e) => {
     e.preventDefault();
@@ -27,13 +28,13 @@ export default function ContactsClient({ data, tab, page, canEdit }) {
   };
 
   return (
+    <SectionTabs path="/contacts" current={tab} keep={['q', 'active']}>
     <div className="stack">
-      <TabBar path="/contacts" items={tabsFor('/contacts')} current={tab} />
       <FilterBar filters={[{ type: 'search', label: 'Cari', placeholder: 'Nama / kode / PIC / kota' }, { name: 'active', label: 'Status', type: 'select', allLabel: 'Semua', options: [['1', 'Hanya aktif']] }]}>
-        {canEdit && <button className="btn btn-primary" onClick={() => setForm({ ...EMPTY, type: tab })}><Plus size={16} /> Tambah {labelOf(tab).toLowerCase()}</button>}
+        {canEdit && <button className="btn btn-primary" onClick={() => setForm({ ...EMPTY, type: tab })}><Plus size={16} /> Tambah {noun(tab)}</button>}
       </FilterBar>
       <div className="card">
-        <DataTable rows={data.rows} empty={`Belum ada ${labelOf(tab).toLowerCase()}.`}
+        <DataTable rows={data.rows} empty={`Belum ada ${noun(tab)}.`}
           columns={[
             { key: 'name', label: 'Nama', render: (c) => (<div><strong>{c.name}</strong><div className="muted">{c.code}{c.industry ? ' · ' + c.industry : ''}</div></div>) },
             { key: 'pic', label: 'Kontak', render: (c) => (<div>{c.pic ?? '-'}<div className="muted">{[c.phone, c.email].filter(Boolean).join(' · ')}</div></div>) },
@@ -54,7 +55,7 @@ export default function ContactsClient({ data, tab, page, canEdit }) {
       </div>
       <Pager page={page} total={data.total} />
 
-      <Modal open={Boolean(form)} onClose={() => setForm(null)} title={form?.id ? `Edit ${form.code}` : `Tambah ${labelOf(form?.type ?? tab).toLowerCase()}`} size="modal-lg">
+      <Modal open={Boolean(form)} onClose={() => setForm(null)} title={form?.id ? `Edit ${form.code}` : `Tambah ${noun(form?.type ?? tab)}`} size="modal-lg">
         {form && (
           <form onSubmit={save}>
             <FormFields values={form} setValues={setForm} fields={[
@@ -85,5 +86,6 @@ export default function ContactsClient({ data, tab, page, canEdit }) {
         )}
       </Modal>
     </div>
+    </SectionTabs>
   );
 }

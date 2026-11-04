@@ -5,7 +5,7 @@ import { query, requirePage } from '@/lib/page';
 import { listContacts } from '@/lib/services/contacts';
 import ContactsClient from './ContactsClient';
 
-export const metadata = { title: 'Klien & Vendor' };
+export const metadata = { title: 'Copart & Vendor' };
 
 export default async function ContactsPage({ searchParams }) {
   const user = await requirePage('/contacts');
@@ -13,7 +13,7 @@ export default async function ContactsPage({ searchParams }) {
   const tab = currentTab('/contacts', q.tab);
   const data = await listContacts({ ...q, tab }, q);
   return (
-    <AppLayout title="Klien & Vendor" user={user}>
+    <AppLayout title="Copart & Vendor" user={user}>
       <ContactsClient data={data} tab={tab} page={q.page} canEdit={canWrite(user.role, 'contacts')} />
     </AppLayout>
   );

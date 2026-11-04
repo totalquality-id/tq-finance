@@ -45,10 +45,10 @@ export default function ProjectsClient({ data, clients, page, canEdit }) {
   return (
     <div className="stack">
       <FilterBar filters={[
-        { type: 'search', label: 'Cari', placeholder: 'Kode / nama / klien / no. kontrak' },
+        { type: 'search', label: 'Cari', placeholder: 'Kode / nama / Copart / no. kontrak' },
         { name: 'status', label: 'Status', type: 'select', options: STATUSES },
         { name: 'serviceType', label: 'Jenis jasa', type: 'select', options: SERVICES },
-        { name: 'clientId', label: 'Klien', type: 'select', options: clients.map((c) => [c.id, c.name]) },
+        { name: 'clientId', label: 'Copart', type: 'select', options: clients.map((c) => [c.id, c.name]) },
       ]}>
         {canEdit && <button className="btn btn-primary" onClick={() => open(null)}><Plus size={16} /> Proyek baru</button>}
       </FilterBar>
@@ -110,7 +110,7 @@ export default function ProjectsClient({ data, clients, page, canEdit }) {
           <form onSubmit={save} className="stack">
             <FormFields values={form} setValues={setForm} columns={3} fields={[
               { name: 'name', label: 'Nama proyek', required: true, span: true, placeholder: 'mis. Pendampingan Sertifikasi ISO 9001:2015 PT ABC' },
-              { name: 'clientId', label: 'Klien', type: 'select', options: clients.map((c) => [c.id, c.name]), required: true },
+              { name: 'clientId', label: 'Copart', type: 'select', options: clients.map((c) => [c.id, c.name]), required: true },
               { name: 'serviceType', label: 'Jenis jasa', type: 'select', options: SERVICES, noEmpty: true },
               { name: 'standard', label: 'Standar / topik', placeholder: 'ISO 9001:2015, ISO 45001…' },
               { name: 'contractNo', label: 'No. kontrak / SPK / PO' },

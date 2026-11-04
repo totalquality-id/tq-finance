@@ -57,7 +57,7 @@ export const SETTING_DEFAULTS = {
   'reminder.thresholds': {
     label: 'Pengingat jatuh tempo (hari sebelum)',
     value: { invoiceDueDays: 7, billDueDays: 7 },
-    fields: { invoiceDueDays: 'Invoice ke klien', billDueDays: 'Tagihan vendor' },
+    fields: { invoiceDueDays: 'Invoice ke Copart', billDueDays: 'Tagihan vendor' },
   },
 };
 

@@ -164,9 +164,9 @@ export default function InvoicesClient({ data, page, clients, projects, taxes, r
   return (
     <div className="stack">
       <FilterBar filters={[
-        { type: 'search', label: 'Cari', placeholder: 'No. invoice / klien / PO' },
+        { type: 'search', label: 'Cari', placeholder: 'No. invoice / Copart / PO' },
         { name: 'status', label: 'Status', type: 'select', options: STATUS_OPTS },
-        { name: 'clientId', label: 'Klien', type: 'select', options: clients.map((c) => [c.id, c.name]) },
+        { name: 'clientId', label: 'Copart', type: 'select', options: clients.map((c) => [c.id, c.name]) },
         { name: 'from', label: 'Dari', type: 'date' },
         { name: 'to', label: 'Sampai', type: 'date' },
       ]}>
@@ -186,7 +186,7 @@ export default function InvoicesClient({ data, page, clients, projects, taxes, r
         <DataTable rows={data.rows} onRowClick={(r) => setDetailId(r.id)} empty="Belum ada invoice."
           columns={[
             { key: 'number', label: 'Invoice', render: (r) => (<div><strong>{r.number}</strong><div className="muted">{formatDate(r.date)}</div></div>) },
-            { key: 'client', label: 'Klien / proyek', render: (r) => (<div>{r.client.name}<div className="muted">{r.project ? `${r.project.code} · ${r.milestone?.name ?? r.project.name}` : r.reference ?? ''}</div></div>) },
+            { key: 'client', label: 'Copart / proyek', render: (r) => (<div>{r.client.name}<div className="muted">{r.project ? `${r.project.code} · ${r.milestone?.name ?? r.project.name}` : r.reference ?? ''}</div></div>) },
             { key: 'due', label: 'Jatuh tempo', render: (r) => <span className={isOverdue(r) ? 'text-red' : ''}>{formatDate(r.dueDate)}</span> },
             { key: 'total', label: 'Total', num: true, render: (r) => idr(r.total) },
             { key: 'rest', label: 'Sisa', num: true, render: (r) => (r.status === 'VOID' ? '-' : idr(r.total - r.paid)) },
@@ -270,19 +270,19 @@ export default function InvoicesClient({ data, page, clients, projects, taxes, r
         {form && (
           <form onSubmit={save} className="stack">
             <FormFields values={form} setValues={setValues} columns={3} fields={[
-              { name: 'clientId', label: 'Klien', type: 'select', options: clients.map((c) => [c.id, c.name]), required: true },
+              { name: 'clientId', label: 'Copart', type: 'select', options: clients.map((c) => [c.id, c.name]), required: true },
               { name: 'projectId', label: 'Proyek (opsional)', type: 'select', options: clientProjects.map((p) => [p.id, `${p.code} — ${p.name}`]) },
               ...(form.id ? [] : [{ name: 'milestoneId', label: 'Termin', type: 'select', options: milestones.map((m) => [m.id, `${m.name} · ${idr(m.amount)}`]), hidden: (v) => !v.projectId }]),
               { name: 'date', label: 'Tanggal invoice', type: 'date', required: true },
               { name: 'dueDate', label: 'Jatuh tempo', type: 'date', required: true },
-              { name: 'reference', label: 'No. PO / SPK klien' },
+              { name: 'reference', label: 'No. PO / SPK Copart' },
               { name: 'revenueAccountId', label: 'Akun pendapatan', type: 'select', options: revenueAccounts.map((a) => [a.id, `${a.code} — ${a.name}`]), required: true, noEmpty: true },
               { name: 'taxInvoiceNo', label: 'No. faktur pajak' },
             ]} />
             <ItemsEditor items={items} setItems={setItems} />
             <div className="grid-2" style={{ alignItems: 'start' }}>
               <div className="form-group"><label className="form-label">Catatan pada invoice</label><textarea className="form-input" rows={4} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
-              <TotalsBox items={items} discount={discount} setDiscount={setDiscount} taxes={taxes} taxIds={taxIds} setTaxIds={setTaxIds} totalLabel="Total dibayar klien" />
+              <TotalsBox items={items} discount={discount} setDiscount={setDiscount} taxes={taxes} taxIds={taxIds} setTaxIds={setTaxIds} totalLabel="Total dibayar Copart" />
             </div>
             <div className="modal-footer" style={{ padding: 0 }}>
               <button type="button" className="btn btn-ghost" onClick={() => setForm(null)}>Batal</button>

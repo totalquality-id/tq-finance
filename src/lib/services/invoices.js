@@ -60,7 +60,7 @@ export async function listInvoices(f = {}, { skip = 0, take = 50 } = {}) {
 async function parse(db, body) {
   object(body, ['clientId', 'projectId', 'milestoneId', 'date', 'dueDate', 'reference', 'taxInvoiceNo', 'items', 'discount', 'taxIds', 'revenueAccountId', 'notes']);
   const v = {
-    clientId: idOf(body.clientId, 'Klien'),
+    clientId: idOf(body.clientId, 'Copart'),
     projectId: optionalId(body.projectId, 'Proyek'),
     milestoneId: optionalId(body.milestoneId, 'Termin'),
     date: date(body.date, 'Tanggal invoice'),
@@ -70,11 +70,11 @@ async function parse(db, body) {
     notes: text(body.notes, 'Catatan', 1000, true),
   };
   ensure(v.dueDate >= v.date, 'Jatuh tempo tidak boleh sebelum tanggal invoice.');
-  ensure(await db.contact.count({ where: { id: v.clientId, type: 'CLIENT' } }), 'Klien tidak ditemukan.');
+  ensure(await db.contact.count({ where: { id: v.clientId, type: 'CLIENT' } }), 'Copart tidak ditemukan.');
   if (v.projectId) {
     const p = await db.project.findUnique({ where: { id: v.projectId }, select: { clientId: true } });
     ensure(p, 'Proyek tidak ditemukan.');
-    ensure(p.clientId === v.clientId, 'Proyek bukan milik klien yang dipilih.');
+    ensure(p.clientId === v.clientId, 'Proyek bukan milik Copart yang dipilih.');
   }
   const items = parseItems(body.items);
   const taxes = await loadTaxes(db, body.taxIds, 'SALES');

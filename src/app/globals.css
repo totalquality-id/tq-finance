@@ -1536,3 +1536,22 @@ details.card[open] > summary::after { transform: rotate(-135deg) translateY(-3px
 
 /* Nomor dokumen tidak terpotong di tabel. */
 .table-wrapper td > div > strong:first-child, .table-wrapper td > strong { white-space: nowrap; }
+
+/* Navigasi bagian halaman (tab vertikal kiri). */
+.section-layout { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 24px; align-items: start; }
+.section-nav { position: sticky; top: calc(var(--header-height) + 20px); display: flex; flex-direction: column; gap: 2px; }
+.section-nav-group + .section-nav-group { margin-top: 16px; }
+.section-nav-label { padding: 0 12px 6px; font-size: 12.5px; font-weight: 500; color: var(--gray-400); }
+.section-nav-item { display: flex; align-items: center; min-height: 38px; padding: 8px 12px; border-radius: var(--radius-md); font-size: 14px; color: var(--gray-600); text-decoration: none; }
+.section-nav-item:hover { background: var(--gray-50); color: var(--gray-900); text-decoration: none; }
+.section-nav-item.active { background: var(--brand-50); color: var(--brand-700); font-weight: 600; }
+.section-content { min-width: 0; }
+@media (max-width: 900px) {
+  .section-layout { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .section-nav { position: static; flex-direction: row; gap: 4px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+  .section-nav::-webkit-scrollbar { display: none; }
+  .section-nav-group { display: contents; }
+  .section-nav-label { display: none; }
+  .section-nav-item { flex-shrink: 0; white-space: nowrap; }
+}
+@media print { .section-layout { display: block; } }

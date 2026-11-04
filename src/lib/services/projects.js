@@ -72,7 +72,7 @@ function parse(body) {
   object(body, ['name', 'clientId', 'serviceType', 'standard', 'contractNo', 'contractDate', 'contractValue', 'budgetCost', 'startDate', 'endDate', 'manager', 'status', 'description', 'milestones']);
   const data = {
     name: text(body.name, 'Nama proyek', 200),
-    clientId: idOf(body.clientId, 'Klien'),
+    clientId: idOf(body.clientId, 'Copart'),
     serviceType: choice(body.serviceType, SERVICE_TYPES, 'Jenis jasa'),
     standard: text(body.standard, 'Standar', 120, true),
     contractNo: text(body.contractNo, 'No. kontrak/SPK', 80, true),
@@ -101,7 +101,7 @@ function parse(body) {
 
 export async function saveProject(user, id, body) {
   const { data, milestones } = parse(body);
-  ensure(await prisma.contact.count({ where: { id: data.clientId, type: 'CLIENT' } }), 'Klien tidak ditemukan.');
+  ensure(await prisma.contact.count({ where: { id: data.clientId, type: 'CLIENT' } }), 'Copart tidak ditemukan.');
   return prisma.$transaction(async (tx) => {
     let row, before = null;
     if (id) {

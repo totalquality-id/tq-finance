@@ -226,8 +226,8 @@ function sheetRows(tab, r) {
     case 'tb': return r.rows.map((x) => ({ Kode: x.code, Akun: x.name, Debit: x.debit, Kredit: x.credit })).concat([{ Akun: 'TOTAL', Debit: r.totalDebit, Kredit: r.totalCredit }]);
     case 'gl': return [{ Keterangan: 'Saldo awal', Saldo: r.opening }, ...r.rows.map((x) => ({ Tanggal: d(x.date), 'No. jurnal': x.number, Referensi: x.reference, Keterangan: x.description, Proyek: x.project, Debit: x.debit, Kredit: x.credit, Saldo: x.balance }))];
     case 'daily': return r.accounts.flatMap((a) => [{ Keterangan: `${a.code} ${a.name} — saldo awal`, Saldo: a.opening }, ...a.rows.map((x) => ({ Tanggal: d(x.date), 'No. jurnal': x.number, Keterangan: x.description, Masuk: x.debit, Keluar: x.credit, Saldo: x.balance })), { Keterangan: 'Saldo akhir', Saldo: a.closing }]);
-    case 'ar': case 'ap': return r.items.map((x) => ({ Nomor: x.number, [tab === 'ar' ? 'Klien' : 'Vendor']: x.party, Tanggal: d(x.date), 'Jatuh tempo': d(x.dueDate), 'Hari lewat': x.days, Total: x.total, Sisa: x.outstanding, Umur: AGING_BUCKETS.find(([k]) => k === x.bucket)[1] }));
-    case 'projects': return r.rows.map((x) => ({ Kode: x.code, Proyek: x.name, Klien: x.client, Status: x.status, 'Nilai kontrak': x.contractValue, Ditagih: x.invoiced, Diterima: x.collected, Pendapatan: x.revenue, 'Beban langsung': x.directCost, 'Beban lain': x.overhead, Margin: x.margin, 'Margin %': x.marginPct, Anggaran: x.budgetCost, 'Pemakaian anggaran %': x.budgetUsedPct }));
+    case 'ar': case 'ap': return r.items.map((x) => ({ Nomor: x.number, [tab === 'ar' ? 'Copart' : 'Vendor']: x.party, Tanggal: d(x.date), 'Jatuh tempo': d(x.dueDate), 'Hari lewat': x.days, Total: x.total, Sisa: x.outstanding, Umur: AGING_BUCKETS.find(([k]) => k === x.bucket)[1] }));
+    case 'projects': return r.rows.map((x) => ({ Kode: x.code, Proyek: x.name, Copart: x.client, Status: x.status, 'Nilai kontrak': x.contractValue, Ditagih: x.invoiced, Diterima: x.collected, Pendapatan: x.revenue, 'Beban langsung': x.directCost, 'Beban lain': x.overhead, Margin: x.margin, 'Margin %': x.marginPct, Anggaran: x.budgetCost, 'Pemakaian anggaran %': x.budgetUsedPct }));
     default: return [];
   }
 }

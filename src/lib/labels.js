@@ -7,7 +7,7 @@ export const LABELS = {
   KONSULTANSI: 'Konsultansi Sistem Manajemen', AUDIT: 'Audit Internal / Second Party', PELATIHAN: 'Pelatihan (Public / In-house)',
   SERTIFIKASI: 'Pendampingan Sertifikasi', ELEARNING: 'E-Learning (TQ Learning)', LAINNYA: 'Lainnya',
   // kontak
-  CLIENT: 'Klien', VENDOR: 'Vendor / Supplier', ASSOCIATE: 'Tenaga Ahli / Asosiasi',
+  CLIENT: 'Copart', VENDOR: 'Vendor / Supplier', ASSOCIATE: 'Tenaga Ahli / Asosiasi',
   // akun
   ASSET: 'Aset', LIABILITY: 'Kewajiban', EQUITY: 'Ekuitas', REVENUE: 'Pendapatan', COST: 'Beban Langsung Proyek',
   EXPENSE: 'Beban Operasional', OTHER_INCOME: 'Pendapatan Lain-lain', OTHER_EXPENSE: 'Beban Lain-lain', INCOME_TAX: 'Pajak Penghasilan',

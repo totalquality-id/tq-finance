@@ -3,9 +3,9 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Download, Printer } from 'lucide-react';
-import { Badge, FilterBar, TabBar } from '@/components/ui';
+import { Badge, FilterBar, SectionTabs } from '@/components/ui';
 import { formatDate, iso } from '@/lib/dates';
-import { tabLabel, tabsFor } from '@/lib/module-tabs';
+import { tabLabel } from '@/lib/module-tabs';
 import { acc, idr, labelOf } from '@/lib/labels';
 
 const long = { day: 'numeric', month: 'long', year: 'numeric' };
@@ -130,7 +130,7 @@ function Aging({ d }) {
   return (
     <div className="stack">
       <table className="report">
-        <thead><tr><th>{d.kind === 'ar' ? 'Klien' : 'Vendor'}</th>{d.buckets.map(([k, l]) => <th key={k} className="num">{l}</th>)}<th className="num">Total</th></tr></thead>
+        <thead><tr><th>{d.kind === 'ar' ? 'Copart' : 'Vendor'}</th>{d.buckets.map(([k, l]) => <th key={k} className="num">{l}</th>)}<th className="num">Total</th></tr></thead>
         <tbody>
           {d.parties.map((p) => <tr key={p.id}><td>{p.name} <span className="muted">({p.count})</span></td>{d.buckets.map(([k]) => <td key={k} className={`num ${k !== 'current' && p[k] ? 'text-red' : ''}`}>{acc(p[k])}</td>)}<td className="num"><strong>{acc(p.total)}</strong></td></tr>)}
           <tr className="grand"><td>Total</td>{d.buckets.map(([k]) => <td key={k} className="num">{acc(d.totals[k])}</td>)}<td className="num">{acc(d.totals.total)}</td></tr>
@@ -138,7 +138,7 @@ function Aging({ d }) {
       </table>
       <div className="section-title">Rincian dokumen</div>
       <table className="report">
-        <thead><tr><th>Nomor</th><th>{d.kind === 'ar' ? 'Klien' : 'Vendor'}</th><th>Tanggal</th><th>Jatuh tempo</th><th className="num">Hari lewat</th><th className="num">Sisa</th></tr></thead>
+        <thead><tr><th>Nomor</th><th>{d.kind === 'ar' ? 'Copart' : 'Vendor'}</th><th>Tanggal</th><th>Jatuh tempo</th><th className="num">Hari lewat</th><th className="num">Sisa</th></tr></thead>
         <tbody>
           {d.items.map((i) => <tr key={i.id}><td><Link href={`/${d.kind === 'ar' ? 'invoices' : 'bills'}?q=${i.number}`}>{i.number}</Link></td><td>{i.party}</td><td>{formatDate(i.date)}</td><td>{formatDate(i.dueDate)}</td><td className={`num ${i.days ? 'text-red' : ''}`}>{i.days || '-'}</td><td className="num">{acc(i.outstanding)}</td></tr>)}
         </tbody>
@@ -187,8 +187,8 @@ export default function ReportsClient({ tab, data: d, accounts, projects, compan
   const exportHref = '/api/reports/export?' + new URLSearchParams({ ...Object.fromEntries(params), tab });
 
   return (
+    <SectionTabs path="/reports" current={tab} keep={['from', 'to']}>
     <div className="stack">
-      <TabBar path="/reports" items={tabsFor('/reports')} current={tab} />
       <FilterBar filters={filters}>
         <a className="btn btn-outline" href={exportHref}><Download size={16} /> Excel</a>
         <button className="btn btn-outline" onClick={() => window.print()}><Printer size={16} /> Cetak</button>
@@ -212,5 +212,6 @@ export default function ReportsClient({ tab, data: d, accounts, projects, compan
         </div>
       </div>
     </div>
+    </SectionTabs>
   );
 }

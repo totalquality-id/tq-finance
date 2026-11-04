@@ -8,6 +8,7 @@ import { X, Search } from 'lucide-react';
 import { apiFetch } from '@/lib/client-api';
 import { useDialog } from './DialogProvider';
 import { STATUS_STYLES, labelOf } from '@/lib/labels';
+import { MODULE_TABS } from '@/lib/module-tabs';
 
 // ─── Modal ──────────────────────────────────────────────────────────────────
 export function Modal({ open, onClose, title, subtitle, size = '', children, footer }) {
@@ -249,19 +250,38 @@ export function Pager({ page, total, limit = 50 }) {
   );
 }
 
-// ─── Tab dalam halaman (sinkron dengan sub-menu sidebar lewat ?tab=) ────────
-export function TabBar({ path, items, current, param = 'tab' }) {
+// ─── Navigasi bagian halaman: tab vertikal di kiri konten ───────────────────
+// Berupa tautan (?tab=) dengan aria-current, bukan role="tab", karena setiap
+// bagian adalah URL tersendiri. Di layar sempit berubah menjadi baris yang bisa digeser.
+// keep = parameter query yang dibawa saat pindah bagian (default: semua kecuali halaman).
+export function SectionTabs({ path, current, keep, children }) {
   const params = useSearchParams();
+  const cfg = MODULE_TABS[path];
+  const href = (key) => {
+    const next = new URLSearchParams();
+    for (const [k, v] of params.entries()) if (k !== 'page' && k !== cfg.param && (!keep || keep.includes(k))) next.set(k, v);
+    next.set(cfg.param, key);
+    return path + '?' + next;
+  };
+  const groups = [];
+  for (const [key, label, group] of cfg.items) {
+    const last = groups[groups.length - 1];
+    if (last && last.name === (group ?? null)) last.items.push([key, label]);
+    else groups.push({ name: group ?? null, items: [[key, label]] });
+  }
   return (
-    <div className="tabs no-print" role="tablist">
-      {items.map(([key, label]) => {
-        const next = new URLSearchParams(params.toString());
-        next.set(param, key);
-        next.delete('page');
-        return (
-          <Link key={key} href={`${path}?${next}`} role="tab" aria-selected={current === key} className={`tab ${current === key ? 'active' : ''}`}>{label}</Link>
-        );
-      })}
+    <div className="section-layout">
+      <nav className="section-nav no-print" aria-label={cfg.label}>
+        {groups.map((g) => (
+          <div key={g.name ?? 'all'} className="section-nav-group">
+            {g.name && <div className="section-nav-label">{g.name}</div>}
+            {g.items.map(([key, label]) => (
+              <Link key={key} href={href(key)} className={`section-nav-item ${current === key ? 'active' : ''}`} aria-current={current === key ? 'page' : undefined}>{label}</Link>
+            ))}
+          </div>
+        ))}
+      </nav>
+      <div className="section-content">{children}</div>
     </div>
   );
 }

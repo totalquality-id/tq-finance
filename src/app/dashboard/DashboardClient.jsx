@@ -20,7 +20,7 @@ const short = (v) => {
 export default function DashboardClient({ data }) {
   const dueCols = (base) => [
     { key: 'number', label: 'Nomor', render: (r) => <Link href={`/${base}?q=${r.number}`}><strong>{r.number}</strong></Link> },
-    { key: 'party', label: base === 'invoices' ? 'Klien' : 'Vendor' },
+    { key: 'party', label: base === 'invoices' ? 'Copart' : 'Vendor' },
     { key: 'due', label: 'Jatuh tempo', render: (r) => <span className={r.overdue ? 'text-red' : ''}>{formatDate(r.dueDate)}</span> },
     { key: 'out', label: 'Sisa', num: true, render: (r) => idr(r.outstanding) },
     { key: 'st', label: '', render: (r) => (r.overdue ? <Badge value="OVERDUE" /> : null) },
@@ -71,9 +71,9 @@ export default function DashboardClient({ data }) {
             </ResponsiveContainer>
           </div>
         </Card>
-        <Card title="Klien terbesar tahun ini (nilai invoice)" padding={0}>
+        <Card title="Copart terbesar tahun ini (nilai invoice)" padding={0}>
           <DataTable rows={data.topClients} rowKey={(r) => r.name} empty="Belum ada invoice tahun ini." columns={[
-            { key: 'name', label: 'Klien' },
+            { key: 'name', label: 'Copart' },
             { key: 'value', label: 'Nilai (sebelum pajak)', num: true, render: (r) => idr(r.value) },
           ]} />
         </Card>

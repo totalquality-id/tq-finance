@@ -4,10 +4,9 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Plus, Trash2 } from 'lucide-react';
-import { Card, DataTable, FormFields, Modal, TabBar, useSubmit } from '@/components/ui';
+import { Card, DataTable, FormFields, Modal, SectionTabs, useSubmit } from '@/components/ui';
 import { useDialog } from '@/components/DialogProvider';
 import { formatDate, todayIso } from '@/lib/dates';
-import { tabsFor } from '@/lib/module-tabs';
 import { acc, idr } from '@/lib/labels';
 
 const MONTHS = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
@@ -41,7 +40,7 @@ function Ppn({ data, year }) {
         <DataTable rows={data.invoices} empty="Belum ada invoice ber-PPN." columns={[
           { key: 'number', label: 'Invoice', render: (r) => <Link href={`/invoices?q=${r.number}`}>{r.number}</Link> },
           { key: 'date', label: 'Tanggal', render: (r) => formatDate(r.date) },
-          { key: 'client', label: 'Klien', render: (r) => (<div>{r.client.name}<div className="muted">{r.client.npwp ?? 'NPWP belum diisi'}</div></div>) },
+          { key: 'client', label: 'Copart', render: (r) => (<div>{r.client.name}<div className="muted">{r.client.npwp ?? 'NPWP belum diisi'}</div></div>) },
           { key: 'faktur', label: 'No. faktur', render: (r) => r.taxInvoiceNo ?? <span className="text-orange">Belum diisi</span> },
           { key: 'dpp', label: 'DPP', num: true, render: (r) => idr(r.subtotal - r.discount) },
           { key: 'ppn', label: 'PPN', num: true, render: (r) => idr(r.taxAdd) },
@@ -72,8 +71,8 @@ function Withholding({ data, period }) {
       <Card title={`PPh dipotong TQ atas tagihan vendor — wajib disetor (${sum(data.byUs)})`} padding={0}>
         <DataTable rows={data.byUs} empty="Tidak ada pemotongan pada masa ini." columns={cols('Vendor / tenaga ahli')} />
       </Card>
-      <Card title={`PPh 23 dipotong klien atas invoice — kredit pajak (${sum(data.byClients)})`} padding={0}>
-        <DataTable rows={data.byClients} empty="Tidak ada pemotongan pada masa ini." columns={cols('Klien')} />
+      <Card title={`PPh 23 dipotong Copart atas invoice — kredit pajak (${sum(data.byClients)})`} padding={0}>
+        <DataTable rows={data.byClients} empty="Tidak ada pemotongan pada masa ini." columns={cols('Copart')} />
       </Card>
     </div>
   );
@@ -138,11 +137,10 @@ function Payments({ data, year, accounts, canEdit }) {
 
 export default function TaxClient({ tab, data, year, period, accounts, canEdit }) {
   return (
-    <div className="stack">
-      <TabBar path="/tax" items={tabsFor('/tax')} current={tab} />
+    <SectionTabs path="/tax" current={tab} keep={['year']}>
       {tab === 'ppn' && <Ppn data={data} year={year} />}
       {tab === 'withholding' && <Withholding data={data} period={period} />}
       {tab === 'payments' && <Payments data={data} year={year} accounts={accounts} canEdit={canEdit} />}
-    </div>
+    </SectionTabs>
   );
 }
