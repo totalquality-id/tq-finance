@@ -120,14 +120,15 @@ export async function billingMonitor(f) {
     if (!when || new Date(when).getUTCFullYear() !== year) continue;
     const state = inv ? (inv.status === 'PAID' ? 'PAID' : new Date(inv.dueDate) < now ? 'OVERDUE' : 'INVOICED') : (m.dueDate && new Date(m.dueDate) < now ? 'LATE' : 'PLANNED');
     cell(m.project.id, { id: m.project.id, code: m.project.code, name: m.project.name, copart: m.project.client.name, status: m.project.status, note: m.project.description }, new Date(when).getUTCMonth(), {
-      id: m.id, label: m.name, amount: inv ? Number(inv.total) : Number(m.amount), paid: inv ? Number(inv.paid) : 0, state, invoiceId: inv?.id ?? null, number: inv?.number ?? null,
+      id: m.id, kind: 'TERMIN', projectId: m.project.id, label: m.name, amount: inv ? Number(inv.total) : Number(m.amount), termAmount: Number(m.amount), dueDate: m.dueDate,
+      paid: inv ? Number(inv.paid) : 0, state, invoiceId: inv?.id ?? null, number: inv?.number ?? null,
     });
   }
   for (const inv of adhoc) {
     const key = inv.project?.id ?? 'copart-' + inv.clientId;
     const state = inv.status === 'PAID' ? 'PAID' : new Date(inv.dueDate) < now ? 'OVERDUE' : 'INVOICED';
     cell(key, { id: key, code: inv.project?.code ?? '', name: inv.project?.name ?? 'Tanpa kontrak', copart: inv.client.name, status: inv.project?.status ?? null, note: inv.project?.description ?? null }, new Date(inv.date).getUTCMonth(), {
-      id: inv.id, label: inv.subject ?? 'Invoice', amount: Number(inv.total), paid: Number(inv.paid), state, invoiceId: inv.id, number: inv.number,
+      id: inv.id, kind: 'INVOICE', label: inv.subject ?? 'Invoice', amount: Number(inv.total), paid: Number(inv.paid), state, invoiceId: inv.id, number: inv.number, dueDate: inv.dueDate,
     });
   }
   const list = Object.values(rows).sort((a, b) => a.copart.localeCompare(b.copart));

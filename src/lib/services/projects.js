@@ -115,3 +115,34 @@ export async function saveProject(user, id, body) {
     return row;
   });
 }
+
+// ─── Ubah / hapus satu termin (dari Monitoring Penagihan) ───────────────────
+export async function updateMilestone(user, id, body) {
+  object(body, ['name', 'amount', 'dueDate']);
+  const before = await prisma.projectMilestone.findUnique({ where: { id }, include: { project: { select: { contractValue: true, milestones: { select: { id: true, amount: true } } } } } });
+  ensure(before, 'Termin tidak ditemukan.', 404);
+  const data = { name: text(body.name, 'Nama termin', 120), amount: number(body.amount, 'Nominal', 0), dueDate: date(body.dueDate, 'Rencana tagih') };
+  if (before.invoiceId) ensure(Math.abs(Number(before.amount) - data.amount) < 0.01, 'Termin sudah diinvoice; nominal mengikuti invoice dan tidak dapat diubah di sini.');
+  const others = before.project.milestones.filter((m) => m.id !== id).reduce((s, m) => s + Number(m.amount), 0);
+  const value = Number(before.project.contractValue);
+  ensure(round2(others + data.amount) <= value + 0.5, `Total termin melebihi nilai kontrak (${value}). Ubah nilai kontrak terlebih dahulu.`);
+  if (value) data.percent = round2((data.amount / value) * 100);
+  return prisma.$transaction(async (tx) => {
+    const row = await tx.projectMilestone.update({ where: { id }, data });
+    await audit(tx, user, { action: 'UPDATE', module: 'projects', recordId: before.projectId, ...diff(before, data), note: 'Ubah termin ' + before.name });
+    return row;
+  });
+}
+
+export async function deleteMilestone(user, id) {
+  const m = await prisma.projectMilestone.findUnique({ where: { id } });
+  ensure(m, 'Termin tidak ditemukan.', 404);
+  ensure(!m.invoiceId, 'Termin sudah diinvoice. Batalkan invoicenya terlebih dahulu bila termin ini memang tidak berlaku.', 409);
+  return prisma.$transaction(async (tx) => {
+    await tx.projectMilestone.delete({ where: { id } });
+    const rest = await tx.projectMilestone.findMany({ where: { projectId: m.projectId }, orderBy: { sequence: 'asc' } });
+    for (const [i, r] of rest.entries()) if (r.sequence !== i + 1) await tx.projectMilestone.update({ where: { id: r.id }, data: { sequence: i + 1 } });
+    await audit(tx, user, { action: 'DELETE', module: 'projects', recordId: m.projectId, before: { name: m.name, amount: m.amount, dueDate: m.dueDate }, note: 'Hapus termin' });
+    return { ok: true };
+  });
+}

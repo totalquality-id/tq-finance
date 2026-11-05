@@ -1639,3 +1639,5 @@ details.card[open] > summary::after { transform: rotate(-135deg) translateY(-3px
 .asset-slot { display: grid; gap: 8px; }
 .asset-preview { height: 110px; border: 1px dashed var(--gray-300); border-radius: var(--radius-md); display: grid; place-items: center; background: var(--gray-25); }
 .asset-preview img { max-height: 96px; max-width: 90%; }
+.monitor button.cell-entry { border: none; font: inherit; cursor: pointer; width: 100%; text-align: right; }
+.monitor button.cell-entry:hover { outline: 1px solid var(--brand-300); }

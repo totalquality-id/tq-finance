@@ -1,17 +1,81 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Download } from 'lucide-react';
-import { Kpi } from '@/components/ui';
+import { Download, FileText, Trash2 } from 'lucide-react';
+import { Kpi, Modal, useSubmit } from '@/components/ui';
+import { useDialog } from '@/components/DialogProvider';
+import { formatDate, iso } from '@/lib/dates';
 import { acc, idr, labelOf } from '@/lib/labels';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
 const STATE_LABEL = { PAID: 'Lunas', INVOICED: 'Sudah diinvoice', OVERDUE: 'Lewat jatuh tempo', LATE: 'Belum ditagih, lewat rencana', PLANNED: 'Rencana tagih' };
 
-export default function BillingClient({ data }) {
+function EntryModal({ entry, row, canEdit, onClose }) {
+  const { submit, busy } = useSubmit();
+  const { showConfirm } = useDialog();
+  const due = iso(entry.dueDate) ?? '';
+  const [form, setForm] = useState({ name: entry.label, amount: entry.termAmount ?? entry.amount, month: due.slice(0, 7), day: due.slice(8, 10) || '01' });
+  const editable = canEdit && entry.kind === 'TERMIN' && !entry.invoiceId;
+
+  const save = async (e) => {
+    e.preventDefault();
+    // Hari dipertahankan; disesuaikan bila bulan tujuan lebih pendek (mis. 31 → 30).
+    const [y, m] = form.month.split('-').map(Number);
+    const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const dueDate = `${form.month}-${String(Math.min(Number(form.day), last)).padStart(2, '0')}`;
+    if (await submit(`/api/projects/milestones/${entry.id}`, { method: 'PUT', body: { name: form.name, amount: Number(form.amount), dueDate } })) onClose();
+  };
+  const remove = async () => {
+    if (await showConfirm(`Hapus termin "${entry.label}" (${idr(entry.amount)}) dari kontrak ${row.copart}?`, 'Hapus termin')) {
+      if (await submit(`/api/projects/milestones/${entry.id}`, { method: 'DELETE' })) onClose();
+    }
+  };
+
+  return (
+    <Modal open onClose={onClose} title={row.copart} subtitle={row.name}>
+      <div className="stack">
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <span className={`cell-entry st-${entry.state}`} style={{ display: 'inline-block' }}>{STATE_LABEL[entry.state]}</span>
+          {entry.number && <span className="chip">{entry.number}</span>}
+        </div>
+        {editable ? (
+          <form onSubmit={save} className="stack" style={{ gap: 12 }}>
+            <div className="form-group"><label className="form-label required">Nama termin</label><input className="form-input" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
+            <div className="form-grid">
+              <div className="form-group"><label className="form-label required">Bulan penagihan</label><input className="form-input" type="month" required value={form.month} onChange={(e) => setForm({ ...form, month: e.target.value })} /></div>
+              <div className="form-group"><label className="form-label required">Nominal</label><input className="form-input" type="number" min="0" step="any" required value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></div>
+            </div>
+            <div className="modal-footer" style={{ padding: 0, justifyContent: 'space-between' }}>
+              <button type="button" className="btn btn-danger-outline btn-sm" disabled={busy} onClick={remove}><Trash2 size={15} /> Hapus</button>
+              <span className="row-actions">
+                <Link className="btn btn-outline btn-sm" href={`/invoices?new=1&projectId=${entry.projectId}&milestoneId=${entry.id}`}><FileText size={15} /> Buat invoice</Link>
+                <button className="btn btn-primary btn-sm" disabled={busy}>Simpan</button>
+              </span>
+            </div>
+          </form>
+        ) : (
+          <>
+            <dl className="detail-grid">
+              <div><dt>{entry.invoiceId ? 'Invoice' : 'Termin'}</dt><dd>{entry.label}</dd></div>
+              <div><dt>{entry.invoiceId ? 'Jatuh tempo' : 'Rencana tagih'}</dt><dd>{formatDate(entry.dueDate)}</dd></div>
+              <div><dt>Nominal</dt><dd>{idr(entry.amount)}</dd></div>
+              <div><dt>Diterima</dt><dd>{idr(entry.paid)}</dd></div>
+            </dl>
+            {entry.invoiceId && canEdit && <p className="muted">Sudah diinvoice — ubah atau batalkan lewat invoicenya.</p>}
+            {entry.invoiceId && <div className="row-actions"><Link className="btn btn-primary btn-sm" href={`/invoices?q=${encodeURIComponent(entry.number)}`}>Buka invoice</Link></div>}
+          </>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+export default function BillingClient({ data, canEdit }) {
   const router = useRouter();
   const pathname = usePathname();
+  const [open, setOpen] = useState(null);
   const pct = (v) => (v === null ? '-' : v + '%');
 
   return (
@@ -50,12 +114,11 @@ export default function BillingClient({ data }) {
                 </td>
                 {r.months.map((entries, i) => (
                   <td key={i} className="num">
-                    {entries.map((e) => {
-                      const body = <span title={`${e.label} · ${STATE_LABEL[e.state]}${e.number ? ' · ' + e.number : ''}`}>{acc(e.amount)}</span>;
-                      return e.invoiceId
-                        ? <Link key={e.id} href={`/invoices?q=${encodeURIComponent(e.number)}`} className={`cell-entry st-${e.state}`}>{body}</Link>
-                        : <span key={e.id} className={`cell-entry st-${e.state}`}>{body}</span>;
-                    })}
+                    {entries.map((e) => (
+                      <button key={e.id} type="button" className={`cell-entry st-${e.state}`} title={`${e.label} · ${STATE_LABEL[e.state]}${e.number ? ' · ' + e.number : ''}`} onClick={() => setOpen({ entry: e, row: r })}>
+                        {acc(e.amount)}
+                      </button>
+                    ))}
                   </td>
                 ))}
                 <td className="num"><strong>{acc(r.total)}</strong></td>
@@ -70,6 +133,8 @@ export default function BillingClient({ data }) {
           </tfoot>
         </table>
       </div>
+
+      {open && <EntryModal key={open.entry.id} entry={open.entry} row={open.row} canEdit={canEdit} onClose={() => setOpen(null)} />}
     </div>
   );
 }
