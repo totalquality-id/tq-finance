@@ -1,126 +1,53 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { Download, Printer } from 'lucide-react';
 import { Badge, FilterBar, SectionTabs } from '@/components/ui';
 import { formatDate, iso } from '@/lib/dates';
 import { tabLabel } from '@/lib/module-tabs';
-import { acc, idr, labelOf } from '@/lib/labels';
+import { acc, labelOf } from '@/lib/labels';
 
 const long = { day: 'numeric', month: 'long', year: 'numeric' };
 const fd = (d) => formatDate(d, long);
+const pct = (v) => (v === null || v === undefined ? '-' : v + '%');
+const inv = (number) => <Link href={`/invoices?q=${encodeURIComponent(number)}`}>{number}</Link>;
 
-function Head({ company, title, period }) {
+function Income({ d }) {
   return (
-    <div className="report-head">
-      <p>{company.name}</p>
-      <h2>{title}</h2>
-      <p>{period}</p>
+    <div className="stack">
+      <div className="grid-2" style={{ alignItems: 'start' }}>
+        <table className="report">
+          <thead><tr><th>Rekening</th><th className="num">Transaksi</th><th className="num">Diterima</th><th className="num">PPh 23</th></tr></thead>
+          <tbody>
+            {d.byAccount.map((r) => <tr key={r.key}><td>{labelOf(r.key)}</td><td className="num">{r.count}</td><td className="num">{acc(r.amount)}</td><td className="num">{acc(r.pph23)}</td></tr>)}
+            <tr className="grand"><td>Total</td><td className="num">{d.totals.count}</td><td className="num">{acc(d.totals.amount)}</td><td className="num">{acc(d.totals.pph23)}</td></tr>
+          </tbody>
+        </table>
+        <table className="report">
+          <thead><tr><th>Copart</th><th className="num">Diterima</th></tr></thead>
+          <tbody>{d.byCopart.slice(0, 10).map((r) => <tr key={r.key}><td>{r.key}</td><td className="num">{acc(r.amount)}</td></tr>)}</tbody>
+        </table>
+      </div>
+      <table className="report">
+        <thead><tr><th>Tanggal</th><th>Invoice</th><th>Copart</th><th>Keterangan</th><th>Rekening</th><th className="num">Diterima</th><th className="num">PPh 23</th></tr></thead>
+        <tbody>
+          {d.items.length === 0 && <tr><td colSpan={7} className="muted" style={{ textAlign: 'center', padding: 24 }}>Tidak ada pemasukan pada periode ini.</td></tr>}
+          {d.items.map((r) => <tr key={r.id}><td className="nowrap">{formatDate(r.date)}</td><td className="nowrap">{inv(r.number)}</td><td>{r.copart}</td><td>{r.description}</td><td>{labelOf(r.account)}</td><td className="num">{acc(r.amount)}</td><td className="num">{acc(r.pph23)}</td></tr>)}
+          <tr className="grand"><td colSpan={5}>Total pemasukan</td><td className="num">{acc(d.totals.amount)}</td><td className="num">{acc(d.totals.pph23)}</td></tr>
+        </tbody>
+      </table>
     </div>
   );
 }
 
-// ─── Laba rugi ───────────────────────────────────────────────────────────────
-function ProfitLoss({ d }) {
-  const router = useRouter();
-  const sec = (k) => d.sections[k];
-  const block = (k, sign = 1) => {
-    const s = sec(k);
-    if (!s.rows.length) return null;
-    return [
-      <tr key={k} className="head"><td colSpan={2}>{s.label}</td><td /></tr>,
-      ...s.rows.map((r) => (
-        <tr key={r.id} className="l2 clickable" onClick={() => router.push(`/reports?tab=gl&accountId=${r.id}&from=${iso(d.from)}&to=${iso(d.to)}`)}>
-          <td style={{ width: 90 }}>{r.code}</td><td>{r.name}</td><td className="num">{acc(r.amount * sign)}</td>
-        </tr>
-      )),
-      <tr key={k + 't'} className="total"><td colSpan={2}>Jumlah {s.label.toLowerCase()}</td><td className="num">{acc(s.total * sign)}</td></tr>,
-    ];
-  };
+function Recap({ d }) {
   return (
     <table className="report">
+      <thead><tr><th>Bulan</th><th className="num">Invoice</th><th className="num">DPP</th><th className="num">PPN</th><th className="num">Total</th><th className="num">Seri TQ</th><th className="num">Operasional</th><th className="num">Akomodasi</th><th className="num">Diterima</th></tr></thead>
       <tbody>
-        {block('REVENUE')}
-        {block('COST', -1)}
-        <tr className="grand"><td colSpan={2}>Laba kotor</td><td className="num">{acc(d.gross)}</td></tr>
-        {block('EXPENSE', -1)}
-        <tr className="total"><td colSpan={2}>Laba operasional</td><td className="num">{acc(d.operating)}</td></tr>
-        {block('OTHER_INCOME')}
-        {block('OTHER_EXPENSE', -1)}
-        <tr className="total"><td colSpan={2}>Laba sebelum pajak</td><td className="num">{acc(d.beforeTax)}</td></tr>
-        {block('INCOME_TAX', -1)}
-        <tr className="grand"><td colSpan={2}>Laba (rugi) bersih</td><td className="num">{acc(d.net)}</td></tr>
-      </tbody>
-    </table>
-  );
-}
-
-// ─── Neraca ──────────────────────────────────────────────────────────────────
-function BalanceSheet({ d }) {
-  const sec = (s) => [
-    <tr key={s.type} className="head"><td colSpan={2}>{s.label}</td><td /></tr>,
-    ...s.subs.flatMap((g) => [
-      <tr key={s.type + g.code + g.name} className="sub"><td colSpan={3}>{g.name}</td></tr>,
-      ...g.rows.map((r) => <tr key={r.id} className="l2"><td style={{ width: 90 }}>{r.code}</td><td>{r.id.length > 4 ? <Link href={`/reports?tab=gl&accountId=${r.id}`}>{r.name}</Link> : r.name}</td><td className="num">{acc(r.amount)}</td></tr>),
-      <tr key={s.type + g.code + 't'} className="total"><td colSpan={2}>Jumlah {g.name.toLowerCase()}</td><td className="num">{acc(g.total)}</td></tr>,
-    ]),
-  ];
-  return (
-    <div className="grid-2" style={{ alignItems: 'start' }}>
-      <table className="report"><tbody>{sec(d.assets)}<tr className="grand"><td colSpan={2}>Total aset</td><td className="num">{acc(d.assets.total)}</td></tr></tbody></table>
-      <table className="report"><tbody>{sec(d.liabilities)}<tr className="total"><td colSpan={2}>Total kewajiban</td><td className="num">{acc(d.liabilities.total)}</td></tr>{sec(d.equity)}<tr className="total"><td colSpan={2}>Total ekuitas</td><td className="num">{acc(d.equity.total)}</td></tr><tr className="grand"><td colSpan={2}>Total kewajiban & ekuitas</td><td className="num">{acc(d.totalLE)}</td></tr></tbody></table>
-      <div style={{ gridColumn: '1 / -1' }} className={d.balanced ? 'balance-ok' : 'balance-bad'}>{d.balanced ? '✓ Neraca seimbang' : `Neraca tidak seimbang — selisih ${idr(d.assets.total - d.totalLE)}`}</div>
-    </div>
-  );
-}
-
-// ─── Arus kas ────────────────────────────────────────────────────────────────
-function CashFlow({ d }) {
-  return (
-    <table className="report">
-      <thead><tr><th>Uraian</th><th className="num">Masuk</th><th className="num">Keluar</th><th className="num">Bersih</th></tr></thead>
-      <tbody>
-        <tr className="total"><td>Saldo kas & bank awal ({fd(d.from)})</td><td /><td /><td className="num">{acc(d.opening)}</td></tr>
-        {d.sections.map((s) => [
-          <tr key={s.key} className="head"><td colSpan={4}>{labelOf('CF_' + s.key)}</td></tr>,
-          ...s.rows.map((r) => <tr key={s.key + r.code} className="l2"><td>{r.code} {r.name}</td><td className="num">{acc(r.inflow)}</td><td className="num">{acc(r.outflow)}</td><td className="num">{acc(r.net)}</td></tr>),
-          <tr key={s.key + 't'} className="total"><td>Arus kas bersih {labelOf('CF_' + s.key).replace('Arus kas dari ', '')}</td><td /><td /><td className="num">{acc(s.net)}</td></tr>,
-        ])}
-        <tr className="total"><td>Kenaikan (penurunan) kas</td><td /><td /><td className="num">{acc(d.net)}</td></tr>
-        <tr className="grand"><td>Saldo kas & bank akhir ({fd(d.to)})</td><td /><td /><td className="num">{acc(d.closing)}</td></tr>
-      </tbody>
-    </table>
-  );
-}
-
-function TrialBalance({ d }) {
-  return (
-    <table className="report">
-      <thead><tr><th style={{ width: 90 }}>Kode</th><th>Akun</th><th className="num">Debit</th><th className="num">Kredit</th></tr></thead>
-      <tbody>
-        {d.rows.map((r) => <tr key={r.id}><td>{r.code}</td><td><Link href={`/reports?tab=gl&accountId=${r.id}`}>{r.name}</Link></td><td className="num">{acc(r.debit)}</td><td className="num">{acc(r.credit)}</td></tr>)}
-        <tr className="grand"><td colSpan={2}>Total {Math.abs(d.totalDebit - d.totalCredit) < 1 ? <span className="balance-ok">· seimbang</span> : <span className="balance-bad">· tidak seimbang</span>}</td><td className="num">{acc(d.totalDebit)}</td><td className="num">{acc(d.totalCredit)}</td></tr>
-      </tbody>
-    </table>
-  );
-}
-
-function LedgerTable({ rows, opening, closing, inOut }) {
-  return (
-    <table className="report">
-      <thead><tr><th>Tanggal</th><th>No. jurnal</th><th>Keterangan</th><th className="num">{inOut ? 'Masuk' : 'Debit'}</th><th className="num">{inOut ? 'Keluar' : 'Kredit'}</th><th className="num">Saldo</th></tr></thead>
-      <tbody>
-        <tr className="total"><td colSpan={5}>Saldo awal</td><td className="num">{acc(opening)}</td></tr>
-        {rows.map((r) => (
-          <tr key={r.id}>
-            <td className="nowrap">{formatDate(r.date)}</td>
-            <td className="nowrap"><Link href={`/journals?q=${r.number}`}>{r.number}</Link></td>
-            <td>{r.description}{r.project && <span className="chip" style={{ marginLeft: 6 }}>{r.project}</span>}<div className="muted">{labelOf(r.source)}{r.reference ? ' · ' + r.reference : ''}</div></td>
-            <td className="num">{acc(r.debit)}</td><td className="num">{acc(r.credit)}</td><td className="num">{acc(r.balance)}</td>
-          </tr>
-        ))}
-        <tr className="grand"><td colSpan={5}>Saldo akhir</td><td className="num">{acc(closing)}</td></tr>
+        {d.months.map((m) => <tr key={m.month}><td>{m.label}</td><td className="num">{m.count || '-'}</td><td className="num">{acc(m.dpp)}</td><td className="num">{acc(m.ppn)}</td><td className="num">{acc(m.total)}</td><td className="num">{acc(m.TQ)}</td><td className="num">{acc(m.OPS)}</td><td className="num">{acc(m.AKOMODASI)}</td><td className="num">{acc(m.paid)}</td></tr>)}
+        <tr className="grand"><td>Total {d.year}</td><td className="num">{d.totals.count}</td><td className="num">{acc(d.totals.dpp)}</td><td className="num">{acc(d.totals.ppn)}</td><td className="num">{acc(d.totals.total)}</td><td className="num">{acc(d.totals.TQ)}</td><td className="num">{acc(d.totals.OPS)}</td><td className="num">{acc(d.totals.AKOMODASI)}</td><td className="num">{acc(d.totals.paid)}</td></tr>
       </tbody>
     </table>
   );
@@ -130,88 +57,72 @@ function Aging({ d }) {
   return (
     <div className="stack">
       <table className="report">
-        <thead><tr><th>{d.kind === 'ar' ? 'Copart' : 'Vendor'}</th>{d.buckets.map(([k, l]) => <th key={k} className="num">{l}</th>)}<th className="num">Total</th></tr></thead>
+        <thead><tr><th>Copart</th>{d.buckets.map(([k, l]) => <th key={k} className="num">{l}</th>)}<th className="num">Total</th></tr></thead>
         <tbody>
           {d.parties.map((p) => <tr key={p.id}><td>{p.name} <span className="muted">({p.count})</span></td>{d.buckets.map(([k]) => <td key={k} className={`num ${k !== 'current' && p[k] ? 'text-red' : ''}`}>{acc(p[k])}</td>)}<td className="num"><strong>{acc(p.total)}</strong></td></tr>)}
           <tr className="grand"><td>Total</td>{d.buckets.map(([k]) => <td key={k} className="num">{acc(d.totals[k])}</td>)}<td className="num">{acc(d.totals.total)}</td></tr>
         </tbody>
       </table>
-      <div className="section-title">Rincian dokumen</div>
       <table className="report">
-        <thead><tr><th>Nomor</th><th>{d.kind === 'ar' ? 'Copart' : 'Vendor'}</th><th>Tanggal</th><th>Jatuh tempo</th><th className="num">Hari lewat</th><th className="num">Sisa</th></tr></thead>
-        <tbody>
-          {d.items.map((i) => <tr key={i.id}><td><Link href={`/${d.kind === 'ar' ? 'invoices' : 'bills'}?q=${i.number}`}>{i.number}</Link></td><td>{i.party}</td><td>{formatDate(i.date)}</td><td>{formatDate(i.dueDate)}</td><td className={`num ${i.days ? 'text-red' : ''}`}>{i.days || '-'}</td><td className="num">{acc(i.outstanding)}</td></tr>)}
-        </tbody>
+        <thead><tr><th>Nomor</th><th>Copart</th><th>Tanggal</th><th>Jatuh tempo</th><th className="num">Hari lewat</th><th className="num">Sisa</th></tr></thead>
+        <tbody>{d.items.map((i) => <tr key={i.id}><td>{inv(i.number)}</td><td>{i.party}</td><td>{formatDate(i.date)}</td><td>{formatDate(i.dueDate)}</td><td className={`num ${i.days ? 'text-red' : ''}`}>{i.days || '-'}</td><td className="num">{acc(i.outstanding)}</td></tr>)}</tbody>
       </table>
     </div>
   );
 }
 
-function Projects({ d }) {
+function Contracts({ d }) {
   return (
-    <table className="report">
-      <thead><tr><th>Proyek</th><th className="num">Kontrak</th><th className="num">Ditagih</th><th className="num">Diterima</th><th className="num">Pendapatan</th><th className="num">Biaya</th><th className="num">Margin</th><th className="num">Anggaran terpakai</th></tr></thead>
-      <tbody>
-        {d.rows.map((r) => (
-          <tr key={r.id}>
-            <td><Link href={`/reports?tab=pl&projectId=${r.id}`}><strong>{r.code}</strong></Link> {r.name}<div className="muted">{r.client} · {labelOf(r.serviceType)} · <Badge value={r.status} /></div></td>
-            <td className="num">{acc(r.contractValue)}</td>
-            <td className="num">{acc(r.invoiced)}<div className="muted">{r.billedPct}%</div></td>
-            <td className="num">{acc(r.collected)}</td>
-            <td className="num">{acc(r.revenue)}</td>
-            <td className="num">{acc(r.cost)}</td>
-            <td className={`num ${r.margin < 0 ? 'text-red' : ''}`}>{acc(r.margin)}<div className="muted">{r.marginPct}%</div></td>
-            <td className={`num ${r.budgetUsedPct > 100 ? 'text-red' : ''}`}>{r.budgetCost ? r.budgetUsedPct + '%' : '-'}</td>
-          </tr>
-        ))}
-        <tr className="grand"><td>Total</td><td className="num">{acc(d.totals.contractValue)}</td><td className="num">{acc(d.totals.invoiced)}</td><td className="num">{acc(d.totals.collected)}</td><td className="num">{acc(d.totals.revenue)}</td><td className="num">{acc(d.totals.cost)}</td><td className="num">{acc(d.totals.margin)}</td><td /></tr>
-      </tbody>
-    </table>
+    <div className="stack">
+      <table className="report">
+        <thead><tr><th>Departemen</th><th className="num">Kontrak</th><th className="num">Target {d.year}</th><th className="num">Tercapai</th><th className="num">%</th></tr></thead>
+        <tbody>
+          {d.depts.map((r) => <tr key={r.department}><td>{r.department}</td><td className="num">{r.count}</td><td className="num">{acc(r.target)}</td><td className="num">{acc(r.achieved)}</td><td className="num">{pct(r.pct)}</td></tr>)}
+          <tr className="grand"><td>Total</td><td className="num">{d.contracts.length}</td><td className="num">{acc(d.totals.target)}</td><td className="num">{acc(d.totals.achieved)}</td><td className="num">{pct(d.totals.pct)}</td></tr>
+        </tbody>
+      </table>
+      <table className="report">
+        <thead><tr><th>Tgl kontrak</th><th>Copart</th><th>Program</th><th>Dept.</th><th>Presenter</th><th className="num">Nilai</th><th>Status</th></tr></thead>
+        <tbody>{d.contracts.map((c) => <tr key={c.id}><td className="nowrap">{formatDate(c.contractDate)}</td><td>{c.copart}</td><td>{c.program ?? c.name}</td><td>{c.department ?? '-'}</td><td>{c.presenter ?? '-'}</td><td className="num">{acc(c.value)}</td><td><Badge value={c.status} /></td></tr>)}</tbody>
+      </table>
+    </div>
   );
 }
 
-export default function ReportsClient({ tab, data: d, accounts, projects, company }) {
+export default function ReportsClient({ tab, data: d, company }) {
   const params = useSearchParams();
   const range = [{ name: 'from', label: 'Dari', type: 'date', default: iso(d.from) ?? '' }, { name: 'to', label: 'Sampai', type: 'date', default: iso(d.to) ?? '' }];
-  const asOf = [{ name: 'to', label: 'Per tanggal', type: 'date', default: iso(d.to ?? d.asOf) ?? '' }];
+  const year = [{ name: 'year', label: 'Tahun', type: 'number', default: String(d.year ?? '') }];
   const filters = {
-    pl: [...range, { name: 'projectId', label: 'Proyek', type: 'select', allLabel: 'Semua (perusahaan)', options: projects.map((p) => [p.id, `${p.code} — ${p.name}`]) }],
-    bs: asOf, tb: asOf, ar: asOf, ap: asOf, cf: range,
-    gl: [{ name: 'accountId', label: 'Akun', type: 'select', allLabel: '— Pilih akun —', options: accounts.map((a) => [a.id, `${a.code} — ${a.name}`]) }, ...range],
-    daily: [{ name: 'accountId', label: 'Rekening', type: 'select', allLabel: 'Semua kas & bank', options: accounts.filter((a) => a.isCash).map((a) => [a.id, `${a.code} — ${a.name}`]) }, ...range],
-    projects: [...range, { name: 'status', label: 'Status', type: 'select', options: ['AKTIF', 'DITAHAN', 'SELESAI', 'BATAL'] }],
+    income: range,
+    invoices: year,
+    aging: [{ name: 'to', label: 'Per tanggal', type: 'date', default: iso(d.asOf) ?? '' }, { name: 'series', label: 'Seri', type: 'select', options: [['TQ', 'Seri TQ'], ['OPS', 'Seri Operasional']] }],
+    contracts: year,
   }[tab];
-  const period = d.from ? `${fd(d.from)} s.d. ${fd(d.to)}` : `Per ${fd(d.to ?? d.asOf)}`;
-  const project = tab === 'pl' && d.projectId ? projects.find((p) => p.id === d.projectId) : null;
-  const title = tab === 'gl' && d.account ? `Buku Besar — ${d.account.code} ${d.account.name}` : project ? `Laba Rugi Proyek ${project.code} — ${project.name}` : tabLabel('/reports', tab).replace(/^./, (c) => c.toUpperCase());
+  const period = d.from ? `${fd(d.from)} s.d. ${fd(d.to)}` : d.asOf ? `Per ${fd(d.asOf)}` : `Tahun ${d.year}`;
   const exportHref = '/api/reports/export?' + new URLSearchParams({ ...Object.fromEntries(params), tab });
 
   return (
-    <SectionTabs path="/reports" current={tab} keep={['from', 'to']}>
-    <div className="stack">
-      <FilterBar filters={filters}>
-        <a className="btn btn-outline" href={exportHref}><Download size={16} /> Excel</a>
-        <button className="btn btn-outline" onClick={() => window.print()}><Printer size={16} /> Cetak</button>
-      </FilterBar>
-      <div className="card" style={{ padding: 24 }}>
-        <Head company={company} title={title} period={period} />
-        <div className="report-wrap">
-          {tab === 'pl' && <ProfitLoss d={d} />}
-          {tab === 'bs' && <BalanceSheet d={d} />}
-          {tab === 'cf' && <CashFlow d={d} />}
-          {tab === 'tb' && <TrialBalance d={d} />}
-          {tab === 'gl' && (d.account ? <LedgerTable rows={d.rows} opening={d.opening} closing={d.closing} /> : <div className="muted" style={{ textAlign: 'center', padding: 30 }}>Pilih akun untuk menampilkan buku besar.</div>)}
-          {tab === 'daily' && (d.accounts.length ? d.accounts.map((a) => (
-            <div key={a.id} style={{ marginBottom: 24 }}>
-              <div className="section-title">{a.code} {a.name} — masuk {idr(a.inflow)} · keluar {idr(a.outflow)}</div>
-              <LedgerTable rows={a.rows} opening={a.opening} closing={a.closing} inOut />
-            </div>
-          )) : <div className="muted" style={{ textAlign: 'center', padding: 30 }}>Tidak ada mutasi kas pada periode ini.</div>)}
-          {(tab === 'ar' || tab === 'ap') && <Aging d={d} />}
-          {tab === 'projects' && <Projects d={d} />}
+    <SectionTabs path="/reports" current={tab} keep={['from', 'to', 'year']}>
+      <div className="stack">
+        <FilterBar filters={filters}>
+          <a className="btn btn-outline" href={exportHref}><Download size={16} /> Excel</a>
+          <button className="btn btn-outline" onClick={() => window.print()}><Printer size={16} /> Cetak</button>
+        </FilterBar>
+        <div className="card" style={{ padding: 24 }}>
+          <div className="report-head">
+            <p>{company.name}</p>
+            <h2>{tabLabel('/reports', tab).replace(/^./, (c) => c.toUpperCase())}</h2>
+            <p>{period}</p>
+          </div>
+          <div className="report-wrap">
+            {tab === 'income' && <Income d={d} />}
+            {tab === 'invoices' && <Recap d={d} />}
+            {tab === 'aging' && <Aging d={d} />}
+            {tab === 'contracts' && <Contracts d={d} />}
+          </div>
         </div>
       </div>
-    </div>
     </SectionTabs>
   );
 }

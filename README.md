@@ -1,80 +1,56 @@
-# TQ Finance — PT. Total Quality Indonesia
+# TQ Finance — Penagihan & Invoicing PT Total Quality Indonesia
 
-Sistem akuntansi & keuangan untuk **tim finance** PT. Total Quality Indonesia (kantor jasa konsultan ISO, audit, dan pelatihan).
-Fungsi inti mengikuti *dbg-finance* (COA, kontak, jurnal umum, kas & bank, piutang, hutang, laporan, pajak dinamis),
-dibangun ulang dengan arsitektur & UI *prohaba-hse*: Next.js 16 (App Router, JS), Auth.js v5, Prisma 7 + `@prisma/adapter-pg`,
-PostgreSQL, design system yang sama — warna biru korporat TQ `#173e76` dengan aksen kuning logo `#FACC01`. Node.js 22.
+Aplikasi penagihan untuk tim finance TQ, mengikuti SOP Penagihan (SOP-CSD-002):
+kontrak dari CCD → invoice & faktur pajak → kirim (ekspedisi/email) → follow up 2–3 hari → pembayaran → laporan pemasukan ke Direktur Utama.
+Stack sama dengan prohaba-hse: Next.js 16 (App Router, JS), Auth.js v5, Prisma 7 + `@prisma/adapter-pg`, PostgreSQL (Supabase), Node.js 22.
 
-## Modul
+## Menu
 
-| Grup | Modul | Halaman | Isi |
-|---|---|---|---|
-| Utama | Dashboard | `/dashboard` | Saldo kas/bank, piutang & hutang (lewat tempo), pendapatan/laba bulan & tahun berjalan, grafik 12 bulan, umur piutang, klien terbesar, jatuh tempo ≤ 14 hari |
-| | Notifikasi | `/notifications` | Pengingat invoice & tagihan jatuh tempo, tenggat setor PPh (tgl 15) & SPT Masa PPN |
-| Transaksi | Piutang & Invoice | `/invoices` | Invoice per termin proyek / bebas, PPN & PPh 23 dinamis, diskon, penerimaan bertahap + biaya transfer, batal (void), cetak/PDF dengan terbilang |
-| | Hutang & Tagihan | `/bills` | Tagihan vendor & honor tenaga ahli, dibebankan per akun & proyek, PPN masukan, potong PPh 21/23/4(2), pembayaran bertahap |
-| | Kas & Bank | `/cash` | Penerimaan, pengeluaran (multi-baris), transfer antar rekening, saldo per rekening |
-| | Jurnal Umum | `/journals` | Jurnal manual/penyesuaian & saldo awal; jurnal otomatis dari modul lain (read-only) |
-| Master | Klien & Vendor | `/contacts` | Klien, vendor/supplier, tenaga ahli asosiasi (NPWP, PKP, termin, rekening) |
-| | Proyek & Kontrak | `/projects` | Kontrak jasa (konsultansi/audit/pelatihan/sertifikasi), termin penagihan (pola 30/40/30), anggaran biaya, margin |
-| | Bagan Akun | `/accounts` | 101 akun khusus kantor konsultan (hirarkis, saldo berjalan) |
-| | Aset Tetap | `/assets` | Laptop, proyektor, kendaraan; penyusutan garis lurus bulanan otomatis (posting & batal per periode) |
-| Laporan | Laporan Keuangan | `/reports` | Laba rugi (per proyek), neraca, arus kas (langsung), neraca saldo, buku besar, kas harian, umur piutang, umur hutang, profitabilitas proyek — ekspor Excel & cetak |
-| | Pajak | `/tax` | Rekap PPN per masa, PPh dipotong (oleh TQ & oleh klien), saldo hutang pajak, setoran (kode billing/NTPN) |
-| Sistem | Pengguna, Pengaturan, Audit Log | `/users`, `/settings`, `/audit-log` | Peran, profil perusahaan, pemetaan akun, pajak dinamis, data cetak invoice, **tutup buku** |
+| Menu | Isi |
+|---|---|
+| Dashboard | Piutang belum lunas, kontrak berjalan, pendapatan bulan ini, omset tahun berjalan, umur piutang, Copart terbesar, invoice jatuh tempo, perlu follow up, termin siap ditagih |
+| Invoice | Dua seri, format Jasa / Tiket, Invoice / Kwitansi, kirim, follow up, pembayaran (PPh 23 + bukti potong), cetak A4 / PDF, ekspor rekap nomor |
+| Monitoring Penagihan | Matriks Copart/kontrak × bulan (pengganti sheet "Piutang Penagihan"): target, tertagih, outstanding, % penagihan |
+| Kontrak & Termin | Data Berita Acara Closing: program, departemen, presenter, no. kontrak/SPK, total close, termin (pola 6 tahap, DP/pelunasan, 30/40/30) |
+| Copart | Data Copart + singkatan untuk nomor invoice |
+| Laporan Penagihan | Laporan pemasukan, rekap invoice per bulan, umur piutang, pencapaian kontrak vs target departemen |
 
-Peran: **Manajer Keuangan** (semua + COA, pengaturan, tutup buku, pengguna), **Staf Keuangan** (input transaksi), **Pimpinan/Direksi** (baca saja).
+## Dua seri invoice
 
-Rancangan & asumsi modul: `docs/rancangan-modul.md`.
+| | Seri TQ | Seri Operasional |
+|---|---|---|
+| Tampilan | Kop surat (logo baru + strip footer), stempel, tanda tangan | Polos, tanpa kop & stempel, tanda tangan |
+| Pajak | PPN (nilai termasuk PPN → DPP = 100/111, atau PPN ditambahkan), no. faktur pajak | Tanpa PPN |
+| Rekening | Rekening PT (Pengaturan → Seri TQ) | Rekening operasional (Pengaturan → Seri Operasional) |
+| Nomor | `INV-COP/1276/11/26` (melanjutkan rekap 1xxx) | `INV-COP/2301/11/26` (melanjutkan rekap 2xxx) |
 
-## Aturan akuntansi
+Kwitansi ≥ Rp5.000.000 menampilkan kotak e-Meterai (meterai tidak dicetak sebagai gambar). Seluruh invoice kedua seri tercatat di laporan yang sama.
 
-- Semua transaksi diposting lewat satu mesin jurnal (`src/lib/services/ledger.js`): wajib seimbang, hanya akun detail aktif, nomor `JU-YYYYMM-0001`.
-- Invoice: Piutang (D) + Potongan (D) + PPh 23 dibayar dimuka (D) vs Pendapatan (K) + PPN Keluaran (K).
-- Tagihan: Beban/aset per baris + PPN Masukan (D) vs Hutang usaha + Hutang PPh (K).
-- Tanggal ≤ **tanggal tutup buku** tidak dapat ditambah/diubah/dihapus. Laba ditahan & laba tahun berjalan di neraca dihitung otomatis (tanpa jurnal penutup).
+## Data internal
 
-## Menjalankan development
+Rekening, nama penanda tangan, stempel, tanda tangan, nomor awal, dan target departemen **tidak ada di kode**. Isi lewat
+`/settings` atau dari file JSON privat:
 
-PostgreSQL lokal (Laragon, port 5432). Database `tq_finance` dengan role superuser lokal.
+    node --env-file=<env> scripts/apply-invoice-settings.mjs <settings.json>
+
+Folder `Data/` (format & data asli finance) diabaikan git.
+
+## Development
 
     npm install
-    cp .env.example .env          # isi AUTH_SECRET & SEED_ADMIN_PASSWORD
-    npm run db:migrate            # terapkan migrasi
-    npm run seed                  # bagan akun, pajak default, akun Manajer Keuangan
-    npm run seed:demo             # opsional: klien, proyek, invoice, tagihan, kas contoh (hanya development)
+    cp .env.example .env
+    npm run db:migrate && npm run seed
+    npm run seed:demo      # opsional, hanya DB lokal
     npm run dev
 
-Akun pertama: `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` dari `.env`. Seed demo juga membuat akun staf & direktur
-(email di `prisma/seed-demo.js`, kata sandi sama dengan `SEED_ADMIN_PASSWORD`).
+## Produksi (Supabase + Vercel)
 
-## Database Supabase (produksi)
+Lihat `scripts/setup-db.mjs` (role `tqf_migrate`/`tqf_runtime`, RLS) dan `scripts/vercel-env.mjs`. Urutan setiap ada migrasi:
 
-Project Supabase **tq-finance** (ref `gaowwopianxrwcbsutjg`, region `ap-northeast-1`), schema `public`. Pola keamanan sama dengan prohaba-hse:
-
-- `tqf_migrate` — pemilik tabel, hanya untuk migrasi (session pooler :5432) → `.env.migrations.production.local`
-- `tqf_runtime` — dipakai aplikasi/Vercel (transaction pooler :6543), NOBYPASSRLS, tanpa DDL → `.env.runtime.production.local`
-- RLS aktif di semua tabel; `anon`/`authenticated` Supabase tidak punya akses tabel; `AuditLog` append-only.
-- Akun Manajer Keuangan pertama: `.env.admin.production.local` (ganti kata sandi setelah login pertama).
-
-Setup dari nol (token Management API `SUPABASE_ACCESS_TOKEN` di `.env`):
-
-    node --env-file=.env scripts/setup-db.mjs roles
+    npm run db:status:production
     npm run db:migrate:production
-    node --env-file=.env scripts/setup-db.mjs grants     # ulangi setiap migrasi menambah tabel
-    npm run seed:production
+    node --env-file=.env scripts/setup-db.mjs grants
 
-Perubahan schema: buat migrasi di lokal (`npm run db:migrate:dev`), lalu `npm run db:status:production` dan
-`npm run db:migrate:production` + `grants` **sebelum** deploy kode yang memakai kolom baru. Jangan memakai `db push`.
+lalu push ke `master` (Vercel deploy otomatis).
 
-`.env` development saat ini menunjuk ke Supabase (role runtime); URL PostgreSQL lokal Laragon tersimpan sebagai komentar.
-
-## Deploy (Vercel)
-
-Env Vercel: `DATABASE_URL` (isi `.env.runtime.production.local`), `AUTH_SECRET`, `CRON_SECRET`, `APP_TIMEZONE`.
-Di luar Vercel (`next start` biasa) isi juga `AUTH_URL`. Vercel Cron memanggil `/api/cron/reminders` harian
-(header `Authorization: Bearer CRON_SECRET`).
-
-## Pengujian
-
-    npm run verify    # lint + unit test (aturan akuntansi & hak akses) + build
+    npm run verify    # lint + unit test + build

@@ -3,37 +3,14 @@
 // terpilih saat dimuat ulang. Item: [kunci, label, grup?]. Aman dipakai di client.
 
 export const MODULE_TABS = {
-  '/contacts': {
-    param: 'tab',
-    label: 'Jenis kontak',
-    items: [
-      ['CLIENT', 'Copart'],
-      ['VENDOR', 'Vendor / Supplier'],
-      ['ASSOCIATE', 'Tenaga ahli / asosiasi'],
-    ],
-  },
   '/reports': {
     param: 'tab',
     label: 'Jenis laporan',
     items: [
-      ['pl', 'Laba rugi', 'Laporan utama'],
-      ['bs', 'Neraca', 'Laporan utama'],
-      ['cf', 'Arus kas', 'Laporan utama'],
-      ['tb', 'Neraca saldo', 'Buku'],
-      ['gl', 'Buku besar', 'Buku'],
-      ['daily', 'Kas harian', 'Buku'],
-      ['ar', 'Umur piutang', 'Analisis'],
-      ['ap', 'Umur hutang', 'Analisis'],
-      ['projects', 'Profitabilitas proyek', 'Analisis'],
-    ],
-  },
-  '/tax': {
-    param: 'tab',
-    label: 'Jenis pajak',
-    items: [
-      ['ppn', 'Rekap PPN'],
-      ['withholding', 'PPh dipotong'],
-      ['payments', 'Setoran pajak'],
+      ['income', 'Laporan pemasukan', 'Penagihan'],
+      ['invoices', 'Rekap invoice', 'Penagihan'],
+      ['aging', 'Umur piutang', 'Penagihan'],
+      ['contracts', 'Pencapaian kontrak', 'Kontrak'],
     ],
   },
 };

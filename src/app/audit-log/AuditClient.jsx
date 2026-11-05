@@ -3,8 +3,8 @@
 import { useState } from 'react';
 import { DataTable, FilterBar, Modal, Pager } from '@/components/ui';
 
-const MODULES = ['invoices', 'bills', 'cash', 'journals', 'contacts', 'projects', 'accounts', 'assets', 'tax', 'reports', 'settings', 'users', 'account'];
-const ACTIONS = ['CREATE', 'UPDATE', 'DELETE', 'VOID', 'POST', 'CLOSE', 'EXPORT'];
+const MODULES = ['invoices', 'projects', 'contacts', 'reports', 'settings', 'users', 'account'];
+const ACTIONS = ['CREATE', 'UPDATE', 'DELETE', 'VOID', 'SEND', 'FOLLOW_UP', 'PAYMENT', 'EXPORT'];
 
 export default function AuditClient({ data, page }) {
   const [detail, setDetail] = useState(null);

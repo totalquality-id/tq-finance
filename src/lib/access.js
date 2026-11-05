@@ -1,5 +1,5 @@
 // Matriks hak akses TQ Finance. Fungsi di sini murni (tanpa database) agar dapat diuji.
-// Aplikasi khusus tim finance PT. Total Quality Indonesia.
+// Aplikasi penagihan & invoicing khusus tim finance PT. Total Quality Indonesia.
 export const ROLES = ['MANAJER_KEUANGAN', 'STAF_KEUANGAN', 'PIMPINAN'];
 export const ROLE_LABELS = {
   MANAJER_KEUANGAN: 'Manajer Keuangan',
@@ -16,13 +16,8 @@ export const MODULES = {
   notifications: { read: ALL, write: ALL },
   contacts: { read: ALL, write: FINANCE },
   projects: { read: ALL, write: FINANCE },
-  accounts: { read: ALL, write: MANAGER },
   invoices: { read: ALL, write: FINANCE },
-  bills: { read: ALL, write: FINANCE },
-  cash: { read: ALL, write: FINANCE },
-  journals: { read: ALL, write: FINANCE },
-  assets: { read: ALL, write: FINANCE },
-  tax: { read: ALL, write: FINANCE },
+  billing: { read: ALL },
   reports: { read: ALL },
   settings: { read: ALL, write: MANAGER },
   users: { read: MANAGER, write: MANAGER },

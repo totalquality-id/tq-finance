@@ -32,7 +32,7 @@ export default function LoginClient() {
     <main className="login-page">
       <div className="login-card">
         <div className="login-logo">
-          <Image src="/brand/tq-logo.png" alt="Logo Total Quality" width={150} height={88} priority style={{ height: 80, width: 'auto' }} />
+          <Image src="/brand/tq-logo-full.png" alt="Total Quality" width={661} height={138} priority style={{ height: 52, width: 'auto' }} />
         </div>
         <h1 className="login-title" style={{ marginBottom: 24 }}>TQ Finance</h1>
 

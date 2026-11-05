@@ -1,130 +1,158 @@
+import * as XLSX from 'xlsx';
 import { prisma } from '../prisma.js';
 import { actorName, audit } from '../audit.js';
-import { addDays, today } from '../dates.js';
-import { computeDocument, paymentStatus, round2 } from '../domain/accounting.js';
-import { array, date, ensure, id as idOf, number, object, optionalId, text } from '../validation.js';
+import { addDays, iso, today } from '../dates.js';
+import {
+  CATEGORIES, DOC_TYPES, FOLLOW_UP_CHANNELS, LAYOUTS, SEND_CHANNELS, SERIES, TAX_MODES,
+  computeInvoice, formatInvoiceNumber, nextFollowUp, paymentStatus, round2, suggestShortCode,
+} from '../domain/billing.js';
+import { labelOf } from '../labels.js';
+import { getSettings } from '../settings.js';
+import { seriesKey, sequenceKey } from '../settings-defaults.js';
+import { array, choice, date, ensure, id as idOf, int, number, object, optionalDate, optionalId, text } from '../validation.js';
 import { searchOr } from './common.js';
-import { accountMapping, assertOpen, docNumber, postJournal, removeJournal, replaceJournal } from './ledger.js';
 
 export const INVOICE_STATUSES = ['UNPAID', 'PARTIAL', 'PAID', 'VOID'];
+const OPEN = ['UNPAID', 'PARTIAL'];
 
-/** Pajak aktif yang dipilih untuk dokumen; kind = 'SALES' | 'PURCHASE'. */
-export async function loadTaxes(db, ids, kind) {
-  if (!ids?.length) return [];
-  ensure(Array.isArray(ids) && ids.length <= 10, 'Daftar pajak tidak valid.');
-  const rows = await db.tax.findMany({ where: { id: { in: ids }, isActive: true, appliesTo: { in: [kind, 'BOTH'] } } });
-  ensure(rows.length === new Set(ids).size, 'Pajak tidak ditemukan atau tidak berlaku.');
-  return rows.map((t) => {
-    const accountId = kind === 'SALES' ? t.salesAccountId : t.purchaseAccountId;
-    ensure(accountId, `Akun untuk pajak ${t.name} belum diatur.`);
-    return { taxId: t.id, code: t.code, name: t.name, rate: Number(t.rate), type: t.type, accountId };
-  });
-}
+const INCLUDE = {
+  client: { select: { id: true, name: true, code: true, shortCode: true, npwp: true, address: true, city: true, pic: true, email: true, phone: true } },
+  project: { select: { id: true, code: true, name: true, contractNo: true } },
+  payments: { orderBy: { date: 'asc' } },
+  followUps: { orderBy: { date: 'desc' } },
+  milestone: { select: { id: true, name: true } },
+};
 
-export function parseItems(list, { withAccount = false } = {}) {
-  return array(list, 'Rincian', 100).map((it, i) => ({
-    description: text(it.description, `Uraian baris ${i + 1}`, 300),
-    quantity: number(it.quantity ?? 1, `Kuantitas baris ${i + 1}`, 0.0001, 1e7),
-    unit: text(it.unit, 'Satuan', 20, true) ?? 'paket',
-    unitPrice: number(it.unitPrice, `Harga baris ${i + 1}`, 0),
-    ...(withAccount ? { accountId: idOf(it.accountId, `Akun baris ${i + 1}`) } : {}),
-  }));
+/** Status penagihan turunan untuk tampilan: belum dikirim / terkirim / perlu follow up. */
+function billingState(inv, followUpDays, now = today()) {
+  if (!OPEN.includes(inv.status)) return { state: null, nextFollowUpAt: null };
+  if (!inv.sentAt) return { state: 'NOT_SENT', nextFollowUpAt: null };
+  const last = inv.followUps?.[0];
+  const next = nextFollowUp({ sentAt: inv.sentAt, lastFollowUp: last?.date, promiseDate: last?.promiseDate }, followUpDays);
+  return { state: next && next <= now ? 'FOLLOW_UP' : 'SENT', nextFollowUpAt: next };
 }
 
 export async function listInvoices(f = {}, { skip = 0, take = 50 } = {}) {
+  const now = today();
   const where = {};
-  if (f.status === 'OVERDUE') { where.status = { in: ['UNPAID', 'PARTIAL'] }; where.dueDate = { lt: today() }; }
+  if (f.status === 'OVERDUE') { where.status = { in: OPEN }; where.dueDate = { lt: now }; }
+  else if (f.status === 'OPEN') where.status = { in: OPEN };
+  else if (f.status === 'NOT_SENT') { where.status = { in: OPEN }; where.sentAt = null; }
   else if (INVOICE_STATUSES.includes(f.status)) where.status = f.status;
-  else if (f.status === 'OPEN') where.status = { in: ['UNPAID', 'PARTIAL'] };
+  if (SERIES.includes(f.series)) where.series = f.series;
+  if (CATEGORIES.includes(f.category)) where.category = f.category;
   if (f.clientId) where.clientId = String(f.clientId);
   if (f.projectId) where.projectId = String(f.projectId);
   if (f.from || f.to) where.date = { ...(f.from ? { gte: date(f.from) } : {}), ...(f.to ? { lte: date(f.to) } : {}) };
-  const or = searchOr(f.q, ['number', 'reference', 'taxInvoiceNo', 'client.name', 'project.name']);
+  const or = searchOr(f.q, ['number', 'reference', 'taxInvoiceNo', 'subject', 'client.name', 'project.name']);
   if (or) where.OR = or;
-  const [rows, total, sums] = await Promise.all([
-    prisma.invoice.findMany({
-      where, skip, take, orderBy: [{ date: 'desc' }, { number: 'desc' }],
-      include: {
-        client: { select: { id: true, name: true, code: true, npwp: true, address: true, city: true, pic: true } },
-        project: { select: { id: true, code: true, name: true } },
-        payments: { orderBy: { date: 'asc' } },
-        milestone: { select: { id: true, name: true } },
-      },
-    }),
-    prisma.invoice.count({ where }),
-    prisma.invoice.aggregate({ where: { ...where, status: where.status ?? { not: 'VOID' } }, _sum: { total: true, paid: true } }),
-  ]);
+  const { 'reminder.thresholds': th } = await getSettings(['reminder.thresholds']);
+  let rows, total;
+  if (f.status === 'FOLLOW_UP') {
+    // Disaring setelah dihitung karena bergantung pada riwayat follow up.
+    const all = await prisma.invoice.findMany({ where: { ...where, status: { in: OPEN }, sentAt: { not: null } }, orderBy: [{ dueDate: 'asc' }], include: INCLUDE });
+    const due = all.map((r) => ({ ...r, ...billingState(r, th.followUpDays, now) })).filter((r) => r.state === 'FOLLOW_UP');
+    rows = due.slice(skip, skip + take); total = due.length;
+  } else {
+    [rows, total] = await Promise.all([
+      prisma.invoice.findMany({ where, skip, take, orderBy: [{ date: 'desc' }, { seq: 'desc' }], include: INCLUDE }),
+      prisma.invoice.count({ where }),
+    ]);
+    rows = rows.map((r) => ({ ...r, ...billingState(r, th.followUpDays, now) }));
+  }
+  const sums = await prisma.invoice.aggregate({ where: { ...where, ...(where.status ? {} : { status: { not: 'VOID' } }) }, _sum: { total: true, paid: true } });
   return { rows, total, sumTotal: Number(sums._sum.total ?? 0), sumPaid: Number(sums._sum.paid ?? 0) };
 }
 
+export async function getInvoice(id) {
+  const inv = await prisma.invoice.findUnique({ where: { id }, include: INCLUDE });
+  ensure(inv, 'Invoice tidak ditemukan.', 404);
+  return inv;
+}
+
+function parseItems(list, layout) {
+  return array(list, 'Rincian', 60).map((it, i) => ({
+    description: text(it.description, layout === 'TIKET' ? `Nama penumpang baris ${i + 1}` : `Deskripsi baris ${i + 1}`, 400),
+    detail: text(it.detail, 'Keterangan', 400, true),
+    route: layout === 'TIKET' ? text(it.route, `Rute baris ${i + 1}`, 120, true) : null,
+    ref: layout === 'TIKET' ? text(it.ref, `Ref. number baris ${i + 1}`, 60, true) : null,
+    amount: number(it.amount, `Jumlah baris ${i + 1}`, 0),
+  }));
+}
+
 async function parse(db, body) {
-  object(body, ['clientId', 'projectId', 'milestoneId', 'date', 'dueDate', 'reference', 'taxInvoiceNo', 'items', 'discount', 'taxIds', 'revenueAccountId', 'notes']);
+  object(body, ['series', 'docType', 'category', 'layout', 'clientId', 'projectId', 'milestoneId', 'date', 'dueDate', 'attn', 'reference', 'subject', 'taxInvoiceNo', 'items', 'taxMode', 'notes', 'internalNote', 'seq']);
   const v = {
+    series: choice(body.series, SERIES, 'Seri invoice'),
+    docType: choice(body.docType ?? 'INVOICE', DOC_TYPES, 'Jenis dokumen'),
+    category: choice(body.category ?? 'KONTRAK', CATEGORIES, 'Kategori'),
+    layout: choice(body.layout ?? 'JASA', LAYOUTS, 'Format rincian'),
     clientId: idOf(body.clientId, 'Copart'),
-    projectId: optionalId(body.projectId, 'Proyek'),
+    projectId: optionalId(body.projectId, 'Kontrak'),
     milestoneId: optionalId(body.milestoneId, 'Termin'),
-    date: date(body.date, 'Tanggal invoice'),
+    date: date(body.date, 'Tanggal'),
     dueDate: date(body.dueDate, 'Jatuh tempo'),
-    reference: text(body.reference, 'No. PO/SPK', 80, true),
+    attn: text(body.attn, 'Attn.', 150, true),
+    reference: text(body.reference, 'No. PO / SPK', 80, true),
+    subject: text(body.subject, 'Judul rincian', 200, true),
     taxInvoiceNo: text(body.taxInvoiceNo, 'No. faktur pajak', 40, true),
     notes: text(body.notes, 'Catatan', 1000, true),
+    internalNote: text(body.internalNote, 'Catatan internal', 1000, true),
+    seq: body.seq === undefined || body.seq === null || body.seq === '' ? null : int(body.seq, 'Nomor urut', 1, 999999),
   };
   ensure(v.dueDate >= v.date, 'Jatuh tempo tidak boleh sebelum tanggal invoice.');
-  ensure(await db.contact.count({ where: { id: v.clientId, type: 'CLIENT' } }), 'Copart tidak ditemukan.');
+  const client = await db.contact.findUnique({ where: { id: v.clientId }, select: { name: true, shortCode: true, type: true } });
+  ensure(client && client.type === 'CLIENT', 'Copart tidak ditemukan.');
   if (v.projectId) {
     const p = await db.project.findUnique({ where: { id: v.projectId }, select: { clientId: true } });
-    ensure(p, 'Proyek tidak ditemukan.');
-    ensure(p.clientId === v.clientId, 'Proyek bukan milik Copart yang dipilih.');
+    ensure(p, 'Kontrak tidak ditemukan.');
+    ensure(p.clientId === v.clientId, 'Kontrak bukan milik Copart yang dipilih.');
   }
-  const items = parseItems(body.items);
-  const taxes = await loadTaxes(db, body.taxIds, 'SALES');
-  let doc;
-  try { doc = computeDocument({ items, discount: Number(body.discount || 0), taxes }); } catch (e) { ensure(false, e.message); }
-  ensure(doc.total > 0, 'Total invoice harus lebih dari nol.');
-  const map = await accountMapping(db);
-  const revenueAccountId = optionalId(body.revenueAccountId, 'Akun pendapatan') ?? map.revenue?.id;
-  ensure(revenueAccountId, 'Akun pendapatan belum dipetakan.');
-  ensure(map.receivable, 'Akun piutang usaha belum dipetakan di Pengaturan.');
-  if (doc.discount > 0) ensure(map.salesDiscount, 'Akun potongan penjualan belum dipetakan.');
-  return { v, doc, revenueAccountId, receivableAccountId: map.receivable.id, discountAccountId: map.salesDiscount?.id };
+  const { 'invoice.document': doc } = await getSettings(['invoice.document'], db);
+  const calc = computeInvoice({ items: parseItems(body.items, v.layout), series: v.series, taxMode: choice(body.taxMode ?? 'NONE', TAX_MODES, 'PPN'), ppnRate: doc.ppnRate });
+  ensure(calc.total > 0, 'Total invoice harus lebih dari nol.');
+  return { v, calc, shortCode: client.shortCode || suggestShortCode(client.name), clientName: client.name };
 }
 
-function invoiceLines({ v, doc, revenueAccountId, receivableAccountId, discountAccountId }, number, clientName) {
-  const desc = `Invoice ${number} — ${clientName}`;
-  const p = v.projectId;
-  return [
-    { accountId: receivableAccountId, debit: doc.total, credit: 0, description: desc },
-    ...(doc.discount > 0 ? [{ accountId: discountAccountId, projectId: p, debit: doc.discount, credit: 0, description: 'Potongan ' + number }] : []),
-    { accountId: revenueAccountId, projectId: p, debit: 0, credit: doc.subtotal, description: desc },
-    ...doc.appliedTaxes.filter((t) => t.amount > 0).map((t) => (t.type === 'ADDITION'
-      ? { accountId: t.accountId, debit: 0, credit: t.amount, description: `${t.name} ${number}` }
-      : { accountId: t.accountId, debit: t.amount, credit: 0, description: `${t.name} ${number}` })),
-  ];
+/** Ambil nomor urut berikutnya; mulai dari "Nomor berikutnya" di Pengaturan bila belum pernah dipakai. */
+async function takeSeq(tx, series, manual) {
+  const key = sequenceKey(series);
+  if (manual) {
+    const row = await tx.sequence.findUnique({ where: { key } });
+    if (!row || row.value < manual) await tx.sequence.upsert({ where: { key }, create: { key, value: manual }, update: { value: manual } });
+    return manual;
+  }
+  const existing = await tx.sequence.findUnique({ where: { key } });
+  if (!existing) {
+    const { [seriesKey(series)]: cfg } = await getSettings([seriesKey(series)], tx);
+    const start = Math.max(1, Number(cfg.nextNumber) || 1);
+    await tx.sequence.create({ data: { key, value: start } });
+    return start;
+  }
+  return (await tx.sequence.update({ where: { key }, data: { value: { increment: 1 } } })).value;
 }
 
-function docData(p) {
-  return {
-    clientId: p.v.clientId, projectId: p.v.projectId, date: p.v.date, dueDate: p.v.dueDate, reference: p.v.reference, taxInvoiceNo: p.v.taxInvoiceNo, notes: p.v.notes,
-    items: p.doc.items, subtotal: p.doc.subtotal, discount: p.doc.discount, appliedTaxes: p.doc.appliedTaxes, taxAdd: p.doc.taxAdd, taxDeduct: p.doc.taxDeduct, total: p.doc.total,
-    revenueAccountId: p.revenueAccountId, receivableAccountId: p.receivableAccountId,
-  };
-}
+const docData = ({ v, calc }) => ({
+  series: v.series, docType: v.docType, category: v.category, layout: v.layout, clientId: v.clientId, projectId: v.projectId,
+  date: v.date, dueDate: v.dueDate, attn: v.attn, reference: v.reference, subject: v.subject, taxInvoiceNo: v.taxInvoiceNo,
+  notes: v.notes, internalNote: v.internalNote,
+  items: calc.items, taxMode: calc.taxMode, ppnRate: calc.ppnRate, subtotal: calc.subtotal, dpp: calc.dpp, ppn: calc.ppn, total: calc.total,
+});
 
 export async function createInvoice(user, body) {
   const p = await parse(prisma, body);
-  const client = await prisma.contact.findUnique({ where: { id: p.v.clientId }, select: { name: true } });
   return prisma.$transaction(async (tx) => {
     if (p.v.milestoneId) {
       const m = await tx.projectMilestone.findUnique({ where: { id: p.v.milestoneId } });
-      ensure(m && m.projectId === p.v.projectId, 'Termin tidak sesuai proyek.');
+      ensure(m && m.projectId === p.v.projectId, 'Termin tidak sesuai kontrak.');
       ensure(!m.invoiceId, 'Termin ini sudah diinvoice.');
     }
-    const number = await docNumber(tx, 'INVOICE', p.v.date);
-    const j = await postJournal(tx, user, { date: p.v.date, description: `Invoice ${number} — ${client.name}`, reference: number, source: 'INVOICE', lines: invoiceLines(p, number, client.name) });
-    const row = await tx.invoice.create({ data: { ...docData(p), number, journalId: j.id, createdBy: user.id, creatorName: actorName(user) } });
-    await tx.journal.update({ where: { id: j.id }, data: { sourceId: row.id } });
+    const seq = await takeSeq(tx, p.v.series, p.v.seq);
+    ensure(!(await tx.invoice.findUnique({ where: { series_seq: { series: p.v.series, seq } } })), `Nomor ${seq} pada ${labelOf(p.v.series)} sudah dipakai.`);
+    const number = formatInvoiceNumber(p.shortCode, seq, p.v.date);
+    const row = await tx.invoice.create({ data: { ...docData(p), number, seq, createdBy: user.id, creatorName: actorName(user) } });
     if (p.v.milestoneId) await tx.projectMilestone.update({ where: { id: p.v.milestoneId }, data: { invoiceId: row.id } });
-    await audit(tx, user, { action: 'CREATE', module: 'invoices', recordId: row.id, after: { number, client: client.name, total: p.doc.total } });
+    await audit(tx, user, { action: 'CREATE', module: 'invoices', recordId: row.id, after: { number, series: p.v.series, copart: p.clientName, total: p.calc.total } });
     return row;
   }, { timeout: 20000 });
 }
@@ -134,15 +162,14 @@ export async function updateInvoice(user, id, body) {
   ensure(before, 'Invoice tidak ditemukan.', 404);
   ensure(before.status !== 'VOID', 'Invoice sudah dibatalkan.', 409);
   ensure(!before.payments.length, 'Invoice sudah memiliki pembayaran. Hapus pembayaran terlebih dahulu untuk mengubah.', 409);
-  const p = await parse(prisma, { ...body, milestoneId: undefined });
-  const client = await prisma.contact.findUnique({ where: { id: p.v.clientId }, select: { name: true } });
+  const p = await parse(prisma, { ...body, series: before.series, milestoneId: undefined, seq: undefined });
+  const number = formatInvoiceNumber(p.shortCode, before.seq, p.v.date);
   return prisma.$transaction(async (tx) => {
-    await replaceJournal(tx, before.journalId, { date: p.v.date, description: `Invoice ${before.number} — ${client.name}`, reference: before.number, lines: invoiceLines(p, before.number, client.name) });
-    const row = await tx.invoice.update({ where: { id }, data: docData(p) });
+    const row = await tx.invoice.update({ where: { id }, data: { ...docData(p), number } });
     if (before.milestone && before.projectId !== p.v.projectId) await tx.projectMilestone.update({ where: { id: before.milestone.id }, data: { invoiceId: null } });
-    await audit(tx, user, { action: 'UPDATE', module: 'invoices', recordId: id, before: { total: before.total, date: before.date, clientId: before.clientId }, after: { total: p.doc.total, date: p.v.date, clientId: p.v.clientId } });
+    await audit(tx, user, { action: 'UPDATE', module: 'invoices', recordId: id, before: { number: before.number, total: before.total }, after: { number, total: p.calc.total } });
     return row;
-  }, { timeout: 20000 });
+  });
 }
 
 export async function voidInvoice(user, id, body) {
@@ -153,66 +180,98 @@ export async function voidInvoice(user, id, body) {
   ensure(inv.status !== 'VOID', 'Invoice sudah dibatalkan.', 409);
   ensure(!inv.payments.length, 'Hapus pembayaran invoice terlebih dahulu.', 409);
   return prisma.$transaction(async (tx) => {
-    await removeJournal(tx, inv.journalId);
-    await tx.invoice.update({ where: { id }, data: { status: 'VOID', voidReason: reason, journalId: null } });
+    await tx.invoice.update({ where: { id }, data: { status: 'VOID', voidReason: reason } });
     if (inv.milestone) await tx.projectMilestone.update({ where: { id: inv.milestone.id }, data: { invoiceId: null } });
-    await audit(tx, user, { action: 'VOID', module: 'invoices', recordId: id, before: { status: inv.status, total: inv.total }, note: reason });
+    await audit(tx, user, { action: 'VOID', module: 'invoices', recordId: id, before: { number: inv.number, total: inv.total }, note: reason });
     return { ok: true };
   });
 }
 
-export async function addInvoicePayment(user, id, body) {
-  object(body, ['date', 'cashAccountId', 'amount', 'bankFee', 'notes']);
+export async function markSent(user, id, body) {
+  object(body, ['sentAt', 'sentVia', 'sentNote']);
+  const inv = await prisma.invoice.findUnique({ where: { id } });
+  ensure(inv && inv.status !== 'VOID', 'Invoice tidak ditemukan.', 404);
+  const data = { sentAt: date(body.sentAt, 'Tanggal kirim'), sentVia: choice(body.sentVia, SEND_CHANNELS, 'Dikirim via'), sentNote: text(body.sentNote, 'Keterangan', 300, true) };
+  ensure(data.sentAt >= inv.date, 'Tanggal kirim sebelum tanggal invoice.');
+  return prisma.$transaction(async (tx) => {
+    const row = await tx.invoice.update({ where: { id }, data });
+    await audit(tx, user, { action: 'SEND', module: 'invoices', recordId: id, after: { sentAt: iso(data.sentAt), via: data.sentVia } });
+    return row;
+  });
+}
+
+export async function addFollowUp(user, id, body) {
+  object(body, ['date', 'channel', 'note', 'promiseDate']);
+  const inv = await prisma.invoice.findUnique({ where: { id } });
+  ensure(inv && OPEN.includes(inv.status), 'Invoice tidak dalam status terbuka.', 409);
+  const data = {
+    date: date(body.date, 'Tanggal follow up'),
+    channel: choice(body.channel, FOLLOW_UP_CHANNELS, 'Melalui'),
+    note: text(body.note, 'Hasil follow up', 1000),
+    promiseDate: optionalDate(body.promiseDate, 'Janji bayar'),
+  };
+  return prisma.$transaction(async (tx) => {
+    const row = await tx.invoiceFollowUp.create({ data: { ...data, invoiceId: id, createdBy: user.id, creatorName: actorName(user) } });
+    await audit(tx, user, { action: 'FOLLOW_UP', module: 'invoices', recordId: id, after: { date: iso(data.date), channel: data.channel }, note: data.note.slice(0, 120) });
+    return row;
+  });
+}
+
+export async function addPayment(user, id, body) {
+  object(body, ['date', 'account', 'amount', 'pph23', 'bankFee', 'buktiPotongNo', 'notes']);
   const v = {
     date: date(body.date, 'Tanggal terima'),
-    cashAccountId: idOf(body.cashAccountId, 'Akun kas/bank'),
-    amount: number(body.amount, 'Nominal diterima', 0.01),
+    account: choice(body.account, SERIES, 'Rekening'),
+    amount: number(body.amount, 'Dana diterima', 0),
+    pph23: number(body.pph23 ?? 0, 'PPh 23 dipotong', 0),
     bankFee: number(body.bankFee ?? 0, 'Biaya bank', 0),
+    buktiPotongNo: text(body.buktiPotongNo, 'No. bukti potong', 60, true),
     notes: text(body.notes, 'Catatan', 300, true),
   };
-  const inv = await prisma.invoice.findUnique({ where: { id }, include: { client: { select: { name: true } } } });
+  const settled = round2(v.amount + v.pph23 + v.bankFee);
+  ensure(settled > 0, 'Isi nominal pembayaran.');
+  const inv = await prisma.invoice.findUnique({ where: { id } });
   ensure(inv, 'Invoice tidak ditemukan.', 404);
-  ensure(['UNPAID', 'PARTIAL'].includes(inv.status), 'Invoice tidak dalam status terbuka.', 409);
+  ensure(OPEN.includes(inv.status), 'Invoice tidak dalam status terbuka.', 409);
   const remaining = round2(Number(inv.total) - Number(inv.paid));
-  ensure(v.amount <= remaining + 0.005, `Nominal melebihi sisa piutang (${remaining}).`);
-  ensure(v.bankFee < v.amount, 'Biaya bank harus lebih kecil dari nominal.');
+  ensure(settled <= remaining + 0.5, `Total pelunasan melebihi sisa tagihan (${remaining}).`);
   ensure(v.date >= inv.date, 'Tanggal terima sebelum tanggal invoice.');
-  const cash = await prisma.account.findUnique({ where: { id: v.cashAccountId } });
-  ensure(cash?.isCash, 'Pilih akun kas/bank.');
-  const map = await accountMapping();
-  if (v.bankFee > 0) ensure(map.bankFee, 'Akun beban administrasi bank belum dipetakan.');
   return prisma.$transaction(async (tx) => {
-    const number = await docNumber(tx, 'RECEIPT', v.date);
-    const desc = `Penerimaan ${inv.number} — ${inv.client.name}`;
-    const j = await postJournal(tx, user, {
-      date: v.date, description: desc, reference: inv.number, source: 'INVOICE_PAYMENT', sourceId: inv.id,
-      lines: [
-        { accountId: v.cashAccountId, debit: round2(v.amount - v.bankFee), credit: 0, description: desc },
-        ...(v.bankFee > 0 ? [{ accountId: map.bankFee.id, debit: v.bankFee, credit: 0, description: 'Biaya transfer ' + inv.number }] : []),
-        { accountId: inv.receivableAccountId, debit: 0, credit: v.amount, description: desc },
-      ],
-    });
-    const pay = await tx.invoicePayment.create({ data: { invoiceId: id, number, ...v, journalId: j.id, createdBy: user.id } });
-    const paid = round2(Number(inv.paid) + v.amount);
+    const pay = await tx.invoicePayment.create({ data: { ...v, invoiceId: id, createdBy: user.id, creatorName: actorName(user) } });
+    const paid = round2(Number(inv.paid) + settled);
     await tx.invoice.update({ where: { id }, data: { paid, status: paymentStatus(inv.total, paid) } });
-    await audit(tx, user, { action: 'CREATE', module: 'invoices', recordId: id, after: { payment: number, amount: v.amount }, note: 'Penerimaan pembayaran' });
+    await audit(tx, user, { action: 'PAYMENT', module: 'invoices', recordId: id, after: { amount: v.amount, pph23: v.pph23, bankFee: v.bankFee } });
     return pay;
   });
 }
 
-export async function deleteInvoicePayment(user, paymentId) {
+export async function deletePayment(user, paymentId) {
   const pay = await prisma.invoicePayment.findUnique({ where: { id: paymentId }, include: { invoice: true } });
   ensure(pay, 'Pembayaran tidak ditemukan.', 404);
-  await assertOpen(prisma, pay.date);
   return prisma.$transaction(async (tx) => {
-    await removeJournal(tx, pay.journalId);
     await tx.invoicePayment.delete({ where: { id: paymentId } });
-    const paid = round2(Number(pay.invoice.paid) - Number(pay.amount));
-    await tx.invoice.update({ where: { id: pay.invoiceId }, data: { paid, status: paymentStatus(pay.invoice.total, paid) } });
-    await audit(tx, user, { action: 'DELETE', module: 'invoices', recordId: pay.invoiceId, before: { payment: pay.number, amount: pay.amount }, note: 'Hapus pembayaran' });
+    const paid = round2(Number(pay.invoice.paid) - Number(pay.amount) - Number(pay.pph23) - Number(pay.bankFee));
+    await tx.invoice.update({ where: { id: pay.invoiceId }, data: { paid: Math.max(0, paid), status: paymentStatus(pay.invoice.total, Math.max(0, paid)) } });
+    await audit(tx, user, { action: 'DELETE', module: 'invoices', recordId: pay.invoiceId, before: { amount: pay.amount, pph23: pay.pph23, date: iso(pay.date) }, note: 'Hapus pembayaran' });
     return { ok: true };
   });
 }
 
-/** Usulan jatuh tempo dari termin klien. */
-export const suggestDue = (d, days) => addDays(d, days ?? 30);
+/** Rekap nomor invoice (pengganti sheet "NO INVOICE"). */
+export async function exportInvoices(user, f) {
+  const { rows } = await listInvoices(f, { skip: 0, take: 10000 });
+  const wb = XLSX.utils.book_new();
+  for (const series of SERIES) {
+    const data = rows.filter((r) => r.series === series).sort((a, b) => a.seq - b.seq).map((r) => ({
+      'No.': r.seq, 'No. invoice': r.number, Tanggal: iso(r.date), 'Jatuh tempo': iso(r.dueDate), Copart: r.client.name, Kontrak: r.project?.name ?? '',
+      Tahap: r.milestone?.name ?? r.subject ?? '', Kategori: labelOf(r.category), Dokumen: labelOf(r.docType),
+      DPP: Number(r.dpp), PPN: Number(r.ppn), Total: Number(r.total), Diterima: Number(r.paid), Sisa: round2(Number(r.total) - Number(r.paid)),
+      Status: labelOf(r.status), Dikirim: r.sentAt ? `${iso(r.sentAt)} (${labelOf(r.sentVia)})` : '', 'Faktur pajak': r.taxInvoiceNo ?? '',
+    }));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.length ? data : [{ 'No.': '' }]), labelOf(series));
+  }
+  await audit(null, user, { action: 'EXPORT', module: 'invoices', note: `Export ${rows.length} invoice` });
+  return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+}
+
+export const suggestDue = (d, days) => addDays(d, days ?? 14);

@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { CheckCheck } from 'lucide-react';
 import { Card, FilterBar, Pager, useSubmit } from '@/components/ui';
 
-const TYPES = [['INVOICE_DUE', 'Invoice jatuh tempo'], ['BILL_DUE', 'Tagihan vendor'], ['TAX_DUE', 'Tenggat pajak']];
+const TYPES = [['INVOICE_DUE', 'Jatuh tempo'], ['FOLLOW_UP', 'Follow up'], ['TERMIN_DUE', 'Termin siap ditagih']];
 const COLOR = { DANGER: 'var(--red-500)', WARNING: 'var(--orange-500)', INFO: 'var(--blue-500)' };
 
 export default function NotificationsClient({ data, page }) {

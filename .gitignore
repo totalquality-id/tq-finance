@@ -54,3 +54,6 @@ next-env.d.ts
 
 # Ekspor lokal berisi data pribadi (mis. daftar isi NIP dengan NIK lengkap)
 /exports
+
+# Data internal finance TQ (format & data asli) — jangan di-commit
+/Data/

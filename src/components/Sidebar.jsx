@@ -5,10 +5,7 @@ import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { useLayoutEffect, useRef } from 'react';
 import { signOut } from 'next-auth/react';
-import {
-  LayoutDashboard, Bell, FileText, ReceiptText, Landmark, BookOpen, Users, Briefcase, ListTree, Laptop,
-  ChartColumn, Percent, UserCog, SlidersHorizontal, History, LogOut, X,
-} from 'lucide-react';
+import { LayoutDashboard, Bell, FileText, CalendarRange, Briefcase, Users, ChartColumn, UserCog, SlidersHorizontal, History, LogOut, X } from 'lucide-react';
 import { useDialog } from './DialogProvider';
 import { canAccess, ROLE_LABELS } from '@/lib/access';
 
@@ -21,29 +18,17 @@ const NAV_ITEMS = [
     ],
   },
   {
-    section: 'Transaksi',
+    section: 'Penagihan',
     items: [
-      { href: '/invoices', label: 'Piutang & Invoice', icon: FileText },
-      { href: '/bills', label: 'Hutang & Tagihan', icon: ReceiptText },
-      { href: '/cash', label: 'Kas & Bank', icon: Landmark },
-      { href: '/journals', label: 'Jurnal Umum', icon: BookOpen },
-    ],
-  },
-  {
-    section: 'Master Data',
-    items: [
-      { href: '/contacts', label: 'Copart & Vendor', icon: Users },
-      { href: '/projects', label: 'Proyek & Kontrak', icon: Briefcase },
-      { href: '/accounts', label: 'Bagan Akun', icon: ListTree },
-      { href: '/assets', label: 'Aset Tetap', icon: Laptop },
+      { href: '/invoices', label: 'Invoice', icon: FileText },
+      { href: '/billing', label: 'Monitoring Penagihan', icon: CalendarRange },
+      { href: '/projects', label: 'Kontrak & Termin', icon: Briefcase },
+      { href: '/contacts', label: 'Copart', icon: Users },
     ],
   },
   {
     section: 'Laporan',
-    items: [
-      { href: '/reports', label: 'Laporan Keuangan', icon: ChartColumn },
-      { href: '/tax', label: 'Pajak', icon: Percent },
-    ],
+    items: [{ href: '/reports', label: 'Laporan Penagihan', icon: ChartColumn }],
   },
   {
     section: 'Sistem',
@@ -93,7 +78,7 @@ export default function Sidebar({ user, isOpen, setIsOpen }) {
     <aside className={`sidebar ${isOpen ? 'open' : ''}`} aria-label="Navigasi utama">
       <div className="sidebar-logo">
         <Link href="/dashboard" style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, color: 'inherit' }}>
-          <Image src="/brand/tq-logo.png" alt="Logo Total Quality" width={60} height={36} priority />
+          <Image src="/brand/tq-logo.png" alt="Logo Total Quality" width={61} height={36} priority />
           <span className="sidebar-logo-text">
             <span className="sidebar-logo-name" style={{ display: 'block' }}>TQ Finance</span>
           </span>

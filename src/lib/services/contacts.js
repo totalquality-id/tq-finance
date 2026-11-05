@@ -1,46 +1,38 @@
 import { prisma } from '../prisma.js';
 import { audit, diff } from '../audit.js';
-import { round2 } from '../domain/accounting.js';
-import { bool, choice, ensure, int, npwp, object, text } from '../validation.js';
+import { normalizeShortCode, round2, suggestShortCode } from '../domain/billing.js';
+import { bool, ensure, int, npwp, object, text } from '../validation.js';
 import { searchOr } from './common.js';
 
-export const CONTACT_TYPES = ['CLIENT', 'VENDOR', 'ASSOCIATE'];
-const CODE_PREFIX = { CLIENT: 'CL', VENDOR: 'VD', ASSOCIATE: 'TA' };
-
 export async function listContacts(f = {}, { skip = 0, take = 50 } = {}) {
-  const where = {};
-  if (CONTACT_TYPES.includes(f.tab)) where.type = f.tab;
+  const where = { type: 'CLIENT' };
   if (f.active === '1') where.isActive = true;
-  const or = searchOr(f.q, ['name', 'code', 'pic', 'city', 'npwp']);
+  const or = searchOr(f.q, ['name', 'code', 'shortCode', 'pic', 'city', 'npwp']);
   if (or) where.OR = or;
   const [rows, total] = await Promise.all([
     prisma.contact.findMany({ where, skip, take, orderBy: [{ isActive: 'desc' }, { name: 'asc' }] }),
     prisma.contact.count({ where }),
   ]);
-  const ids = rows.map((r) => r.id);
-  const [inv, bills] = await Promise.all([
-    prisma.invoice.groupBy({ by: ['clientId'], where: { clientId: { in: ids }, status: { in: ['UNPAID', 'PARTIAL'] } }, _sum: { total: true, paid: true } }),
-    prisma.bill.groupBy({ by: ['vendorId'], where: { vendorId: { in: ids }, status: { in: ['UNPAID', 'PARTIAL'] } }, _sum: { total: true, paid: true } }),
-  ]);
+  const inv = await prisma.invoice.groupBy({ by: ['clientId'], where: { clientId: { in: rows.map((r) => r.id) }, status: { in: ['UNPAID', 'PARTIAL'] } }, _sum: { total: true, paid: true } });
   const ar = Object.fromEntries(inv.map((r) => [r.clientId, round2(Number(r._sum.total ?? 0) - Number(r._sum.paid ?? 0))]));
-  const ap = Object.fromEntries(bills.map((r) => [r.vendorId, round2(Number(r._sum.total ?? 0) - Number(r._sum.paid ?? 0))]));
-  return { rows: rows.map((r) => ({ ...r, receivable: ar[r.id] ?? 0, payable: ap[r.id] ?? 0 })), total };
+  return { rows: rows.map((r) => ({ ...r, receivable: ar[r.id] ?? 0 })), total };
 }
 
-/** Pilihan kontak ringkas untuk form. */
-export function contactOptions(types) {
+/** Pilihan Copart ringkas untuk form. */
+export function contactOptions() {
   return prisma.contact.findMany({
-    where: { isActive: true, type: { in: types } },
-    select: { id: true, code: true, name: true, type: true, paymentTermDays: true, npwp: true, address: true, city: true, pic: true },
+    where: { isActive: true, type: 'CLIENT' },
+    select: { id: true, code: true, shortCode: true, name: true, paymentTermDays: true, npwp: true, address: true, city: true, pic: true },
     orderBy: { name: 'asc' },
   });
 }
 
 function parse(body) {
-  object(body, ['type', 'name', 'npwp', 'isPkp', 'pic', 'email', 'phone', 'address', 'city', 'industry', 'paymentTermDays', 'bankName', 'bankAccount', 'bankHolder', 'notes', 'isActive']);
+  object(body, ['name', 'shortCode', 'npwp', 'isPkp', 'pic', 'email', 'phone', 'address', 'city', 'industry', 'paymentTermDays', 'notes', 'isActive']);
+  const name = text(body.name, 'Nama Copart', 150);
   const data = {
-    type: choice(body.type, CONTACT_TYPES, 'Jenis kontak'),
-    name: text(body.name, 'Nama', 150),
+    name,
+    shortCode: normalizeShortCode(body.shortCode) ?? suggestShortCode(name),
     npwp: npwp(body.npwp),
     isPkp: bool(body.isPkp),
     pic: text(body.pic, 'PIC', 120, true),
@@ -49,10 +41,7 @@ function parse(body) {
     address: text(body.address, 'Alamat', 500, true),
     city: text(body.city, 'Kota', 80, true),
     industry: text(body.industry, 'Bidang usaha', 120, true),
-    paymentTermDays: int(body.paymentTermDays ?? 30, 'Termin pembayaran', 0, 365),
-    bankName: text(body.bankName, 'Bank', 80, true),
-    bankAccount: text(body.bankAccount, 'No. rekening', 40, true),
-    bankHolder: text(body.bankHolder, 'Atas nama', 120, true),
+    paymentTermDays: int(body.paymentTermDays ?? 14, 'Termin pembayaran', 0, 365),
     notes: text(body.notes, 'Catatan', 1000, true),
     isActive: body.isActive === undefined ? true : bool(body.isActive),
   };
@@ -65,24 +54,23 @@ export async function saveContact(user, id, body) {
   return prisma.$transaction(async (tx) => {
     if (id) {
       const before = await tx.contact.findUnique({ where: { id } });
-      ensure(before, 'Kontak tidak ditemukan.', 404);
+      ensure(before, 'Copart tidak ditemukan.', 404);
       const row = await tx.contact.update({ where: { id }, data });
       await audit(tx, user, { action: 'UPDATE', module: 'contacts', recordId: id, ...diff(before, data) });
       return row;
     }
-    const key = 'contact-' + data.type;
-    const seq = await tx.sequence.upsert({ where: { key }, create: { key, value: 1 }, update: { value: { increment: 1 } } });
-    const code = `${CODE_PREFIX[data.type]}-${String(seq.value).padStart(4, '0')}`;
-    const row = await tx.contact.create({ data: { ...data, code } });
+    const seq = await tx.sequence.upsert({ where: { key: 'contact-CLIENT' }, create: { key: 'contact-CLIENT', value: 1 }, update: { value: { increment: 1 } } });
+    const code = `CP-${String(seq.value).padStart(4, '0')}`;
+    const row = await tx.contact.create({ data: { ...data, code, type: 'CLIENT' } });
     await audit(tx, user, { action: 'CREATE', module: 'contacts', recordId: row.id, after: { code, ...data } });
     return row;
   });
 }
 
 export async function deleteContact(user, id) {
-  const c = await prisma.contact.findUnique({ where: { id }, include: { _count: { select: { invoices: true, bills: true, projects: true } } } });
-  ensure(c, 'Kontak tidak ditemukan.', 404);
-  ensure(!c._count.invoices && !c._count.bills && !c._count.projects, 'Kontak sudah memiliki transaksi/proyek; nonaktifkan saja.', 409);
+  const c = await prisma.contact.findUnique({ where: { id }, include: { _count: { select: { invoices: true, projects: true } } } });
+  ensure(c, 'Copart tidak ditemukan.', 404);
+  ensure(!c._count.invoices && !c._count.projects, 'Copart sudah memiliki kontrak/invoice; nonaktifkan saja.', 409);
   return prisma.$transaction(async (tx) => {
     await tx.contact.delete({ where: { id } });
     await audit(tx, user, { action: 'DELETE', module: 'contacts', recordId: id, before: c });

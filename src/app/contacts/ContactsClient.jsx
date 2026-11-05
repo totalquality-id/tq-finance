@@ -2,79 +2,73 @@
 
 import { useState } from 'react';
 import { Plus, Edit, Trash2 } from 'lucide-react';
-import { Badge, DataTable, FilterBar, FormFields, Modal, Pager, SectionTabs, useSubmit } from '@/components/ui';
+import { Badge, DataTable, FilterBar, FormFields, Modal, Pager, useSubmit } from '@/components/ui';
 import { useDialog } from '@/components/DialogProvider';
-import { idr, labelOf } from '@/lib/labels';
+import { suggestShortCode } from '@/lib/domain/billing';
+import { idr } from '@/lib/labels';
 
-const EMPTY = { name: '', npwp: '', isPkp: false, pic: '', email: '', phone: '', address: '', city: '', industry: '', paymentTermDays: 30, bankName: '', bankAccount: '', bankHolder: '', notes: '', isActive: true };
+const EMPTY = { name: '', shortCode: '', npwp: '', isPkp: false, pic: '', email: '', phone: '', address: '', city: '', industry: '', paymentTermDays: 14, notes: '', isActive: true };
 
-export default function ContactsClient({ data, tab, page, canEdit }) {
+export default function ContactsClient({ data, page, canEdit }) {
   const { submit, busy } = useSubmit();
   const { showConfirm } = useDialog();
   const [form, setForm] = useState(null);
-  const isClient = tab === 'CLIENT';
-  // "Copart" adalah istilah TQ (huruf besar), jenis lain ditulis kecil dalam kalimat.
-  const noun = (t) => (t === 'CLIENT' ? labelOf(t) : labelOf(t).toLowerCase());
 
   const save = async (e) => {
     e.preventDefault();
-    const { id, ...rest } = form;
-    const body = Object.fromEntries(Object.keys(EMPTY).map((k) => [k, rest[k]]));
-    body.type = rest.type;
-    if (await submit(id ? `/api/contacts/${id}` : '/api/contacts', { method: id ? 'PUT' : 'POST', body })) setForm(null);
+    const body = Object.fromEntries(Object.keys(EMPTY).map((k) => [k, form[k]]));
+    if (await submit(form.id ? `/api/contacts/${form.id}` : '/api/contacts', { method: form.id ? 'PUT' : 'POST', body })) setForm(null);
   };
   const remove = async (c) => {
-    if (await showConfirm(`Hapus ${c.name}?`, 'Hapus kontak')) submit(`/api/contacts/${c.id}`, { method: 'DELETE' });
+    if (await showConfirm(`Hapus ${c.name}?`, 'Hapus Copart')) submit(`/api/contacts/${c.id}`, { method: 'DELETE' });
   };
+  const setValues = (fn) => setForm((s) => {
+    const n = typeof fn === 'function' ? fn(s) : fn;
+    // Usulkan singkatan selama belum diisi manual.
+    if (n.name !== s.name && (!s.shortCode || s.shortCode === suggestShortCode(s.name))) return { ...n, shortCode: suggestShortCode(n.name) };
+    return n;
+  });
 
   return (
-    <SectionTabs path="/contacts" current={tab} keep={['q', 'active']}>
     <div className="stack">
-      <FilterBar filters={[{ type: 'search', label: 'Cari', placeholder: 'Nama / kode / PIC / kota' }, { name: 'active', label: 'Status', type: 'select', allLabel: 'Semua', options: [['1', 'Hanya aktif']] }]}>
-        {canEdit && <button className="btn btn-primary" onClick={() => setForm({ ...EMPTY, type: tab })}><Plus size={16} /> Tambah {noun(tab)}</button>}
+      <FilterBar filters={[{ type: 'search', label: 'Cari', placeholder: 'Nama / singkatan / PIC / kota' }, { name: 'active', label: 'Status', type: 'select', allLabel: 'Semua', options: [['1', 'Hanya aktif']] }]}>
+        {canEdit && <button className="btn btn-primary" onClick={() => setForm({ ...EMPTY })}><Plus size={16} /> Tambah Copart</button>}
       </FilterBar>
       <div className="card">
-        <DataTable rows={data.rows} empty={`Belum ada ${noun(tab)}.`}
+        <DataTable rows={data.rows} empty="Belum ada Copart."
           columns={[
-            { key: 'name', label: 'Nama', render: (c) => (<div><strong>{c.name}</strong><div className="muted">{c.code}{c.industry ? ' · ' + c.industry : ''}</div></div>) },
+            { key: 'name', label: 'Copart', render: (c) => (<div><strong>{c.name}</strong><div className="muted">{c.shortCode}{c.industry ? ' · ' + c.industry : ''}</div></div>) },
             { key: 'pic', label: 'Kontak', render: (c) => (<div>{c.pic ?? '-'}<div className="muted">{[c.phone, c.email].filter(Boolean).join(' · ')}</div></div>) },
             { key: 'city', label: 'Kota', render: (c) => c.city ?? '-' },
             { key: 'npwp', label: 'NPWP', render: (c) => (c.npwp ? <span>{c.npwp}{c.isPkp && <span className="chip" style={{ marginLeft: 6 }}>PKP</span>}</span> : '-') },
             { key: 'term', label: 'Termin', num: true, render: (c) => `${c.paymentTermDays} hari` },
-            isClient
-              ? { key: 'ar', label: 'Piutang terbuka', num: true, render: (c) => (c.receivable ? idr(c.receivable) : '-') }
-              : { key: 'ap', label: 'Hutang terbuka', num: true, render: (c) => (c.payable ? idr(c.payable) : '-') },
-            { key: 'st', label: 'Status', render: (c) => <Badge value={c.isActive ? 'AKTIF' : 'NONAKTIF'} /> },
+            { key: 'ar', label: 'Piutang', num: true, render: (c) => (c.receivable ? idr(c.receivable) : '-') },
+            { key: 'st', label: 'Status', render: (c) => <Badge value={c.isActive ? 'AKTIF' : 'NONAKTIF'} label={c.isActive ? 'Aktif' : 'Nonaktif'} /> },
             ...(canEdit ? [{ key: 'a', label: '', render: (c) => (
               <div className="row-actions">
                 <button className="btn btn-ghost btn-sm" title="Edit" onClick={() => setForm(Object.fromEntries(Object.entries({ ...EMPTY, ...c }).map(([k, v]) => [k, v ?? ''])))}><Edit size={15} /></button>
-                {!c.receivable && !c.payable && <button className="btn btn-ghost btn-sm" title="Hapus" onClick={() => remove(c)}><Trash2 size={15} /></button>}
+                {!c.receivable && <button className="btn btn-ghost btn-sm" title="Hapus" onClick={() => remove(c)}><Trash2 size={15} /></button>}
               </div>
             ) }] : []),
           ]} />
       </div>
       <Pager page={page} total={data.total} />
 
-      <Modal open={Boolean(form)} onClose={() => setForm(null)} title={form?.id ? `Edit ${form.code}` : `Tambah ${noun(form?.type ?? tab)}`} size="modal-lg">
+      <Modal open={Boolean(form)} onClose={() => setForm(null)} title={form?.id ? `Edit ${form.name}` : 'Tambah Copart'} size="modal-lg">
         {form && (
           <form onSubmit={save}>
-            <FormFields values={form} setValues={setForm} fields={[
-              { name: 'type', label: 'Jenis', type: 'select', options: ['CLIENT', 'VENDOR', 'ASSOCIATE'], noEmpty: true },
-              { name: 'name', label: 'Nama perusahaan / perorangan', required: true },
-              { name: 'industry', label: form.type === 'CLIENT' ? 'Bidang usaha' : 'Jenis barang/jasa', placeholder: form.type === 'CLIENT' ? 'mis. Garmen, Pertambangan' : 'mis. Lembaga sertifikasi, Hotel' },
-              { name: 'pic', label: 'Nama PIC' },
+            <FormFields values={form} setValues={setValues} fields={[
+              { name: 'name', label: 'Nama Copart', required: true, placeholder: 'PT ...' },
+              { name: 'shortCode', label: 'Singkatan (nomor invoice)', required: true, hint: `Contoh nomor: INV-${form.shortCode || 'COP'}/1276/11/26` },
+              { name: 'industry', label: 'Bidang usaha' },
+              { name: 'pic', label: 'PIC / Attn.' },
               { name: 'phone', label: 'Telepon / WA' },
               { name: 'email', label: 'Email', type: 'email' },
-              { name: 'address', label: 'Alamat', type: 'textarea', span: true, rows: 2 },
+              { name: 'address', label: 'Alamat penagihan', type: 'textarea', span: true, rows: 2 },
               { name: 'city', label: 'Kota' },
               { name: 'paymentTermDays', label: 'Termin pembayaran (hari)', type: 'number', min: 0 },
-              { section: 'Perpajakan' },
               { name: 'npwp', label: 'NPWP (15/16 digit)' },
-              { name: 'isPkp', label: 'Pengusaha Kena Pajak (PKP)', type: 'checkbox' },
-              { section: 'Rekening bank', hidden: (v) => v.type === 'CLIENT' },
-              { name: 'bankName', label: 'Bank', hidden: (v) => v.type === 'CLIENT' },
-              { name: 'bankAccount', label: 'No. rekening', hidden: (v) => v.type === 'CLIENT' },
-              { name: 'bankHolder', label: 'Atas nama', hidden: (v) => v.type === 'CLIENT' },
+              { name: 'isPkp', label: 'PKP', type: 'checkbox' },
               { name: 'notes', label: 'Catatan', type: 'textarea', span: true, rows: 2 },
               { name: 'isActive', label: 'Aktif', type: 'checkbox' },
             ]} />
@@ -86,6 +80,5 @@ export default function ContactsClient({ data, tab, page, canEdit }) {
         )}
       </Modal>
     </div>
-    </SectionTabs>
   );
 }

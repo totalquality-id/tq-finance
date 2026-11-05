@@ -1,23 +1,24 @@
 import { prisma } from '../prisma.js';
 import { actorName, audit } from '../audit.js';
-import { LOCK_KEY, SETTING_DEFAULTS, SETTING_KEYS } from '../settings-defaults.js';
-import { lockDate } from '../settings.js';
-import { iso } from '../dates.js';
-import { bool, choice, date, ensure, InputError, number, object, optionalId, text } from '../validation.js';
+import { ASSETS_KEY, SETTING_DEFAULTS, SETTING_KEYS, sequenceKey } from '../settings-defaults.js';
+import { invoiceAssets } from '../settings.js';
+import { ensure, InputError, int, number, object } from '../validation.js';
+
+const SERIES_KEYS = { 'invoice.seriesTQ': 'TQ', 'invoice.seriesOPS': 'OPS' };
 
 export async function listSettings() {
-  const rows = await prisma.setting.findMany({ where: { key: { in: SETTING_KEYS } } });
+  const [rows, seqs] = await Promise.all([
+    prisma.setting.findMany({ where: { key: { in: SETTING_KEYS } } }),
+    prisma.sequence.findMany({ where: { key: { in: Object.values(SERIES_KEYS).map(sequenceKey) } } }),
+  ]);
   const map = Object.fromEntries(rows.map((r) => [r.key, r]));
-  return SETTING_KEYS.map((key) => ({
-    key,
-    label: SETTING_DEFAULTS[key].label,
-    hint: SETTING_DEFAULTS[key].hint ?? null,
-    fields: SETTING_DEFAULTS[key].fields,
-    accountFields: Boolean(SETTING_DEFAULTS[key].accountFields),
-    value: { ...SETTING_DEFAULTS[key].value, ...(map[key]?.value ?? {}) },
-    updatedBy: map[key]?.updatedBy ?? null,
-    updatedAt: map[key]?.updatedAt ?? null,
-  }));
+  const seq = Object.fromEntries(seqs.map((s) => [s.key, s.value]));
+  return SETTING_KEYS.map((key) => {
+    const value = { ...SETTING_DEFAULTS[key].value, ...(map[key]?.value ?? {}) };
+    // Nomor berikutnya selalu dibaca dari urutan yang benar-benar dipakai.
+    if (SERIES_KEYS[key] && seq[sequenceKey(SERIES_KEYS[key])] !== undefined) value.nextNumber = seq[sequenceKey(SERIES_KEYS[key])] + 1;
+    return { key, label: SETTING_DEFAULTS[key].label, fields: SETTING_DEFAULTS[key].fields, value, updatedBy: map[key]?.updatedBy ?? null, updatedAt: map[key]?.updatedAt ?? null };
+  });
 }
 
 function requireManager(user) {
@@ -28,20 +29,21 @@ export async function saveSetting(user, key, body) {
   requireManager(user);
   ensure(SETTING_KEYS.includes(key), 'Parameter tidak dikenal.', 404);
   object(body, ['value']);
-  const ref = SETTING_DEFAULTS[key].value;
+  const def = SETTING_DEFAULTS[key];
   ensure(body.value && typeof body.value === 'object' && !Array.isArray(body.value), 'Format nilai tidak valid.');
   const value = {};
-  for (const [k, def] of Object.entries(ref)) {
+  for (const [k, ref] of Object.entries(def.value)) {
     const raw = body.value[k];
-    value[k] = typeof def === 'number' ? number(raw, SETTING_DEFAULTS[key].fields[k], 0, 3650) : String(raw ?? '').trim().slice(0, 500);
+    value[k] = typeof ref === 'number' ? number(raw, def.fields[k], 0, 1e13) : String(raw ?? '').trim().slice(0, 500);
   }
-  if (SETTING_DEFAULTS[key].accountFields) {
-    const codes = Object.values(value).filter(Boolean);
-    const found = await prisma.account.findMany({ where: { code: { in: codes }, isGroup: false }, select: { code: true } });
-    const ok = new Set(found.map((a) => a.code));
-    for (const [k, code] of Object.entries(value)) ensure(ok.has(code), `Akun untuk "${SETTING_DEFAULTS[key].fields[k]}" tidak valid.`);
-  }
+  const series = SERIES_KEYS[key];
+  if (series) value.nextNumber = int(value.nextNumber, 'Nomor berikutnya', 1, 999999);
   return prisma.$transaction(async (tx) => {
+    if (series) {
+      const used = await tx.invoice.aggregate({ where: { series }, _max: { seq: true } });
+      ensure(!used._max.seq || value.nextNumber > used._max.seq, `Nomor berikutnya harus lebih besar dari nomor terakhir (${used._max.seq}).`);
+      await tx.sequence.upsert({ where: { key: sequenceKey(series) }, create: { key: sequenceKey(series), value: value.nextNumber - 1 }, update: { value: value.nextNumber - 1 } });
+    }
     const before = await tx.setting.findUnique({ where: { key } });
     const row = await tx.setting.upsert({ where: { key }, create: { key, value, updatedBy: actorName(user) }, update: { value, updatedBy: actorName(user) } });
     await audit(tx, user, { action: 'UPDATE', module: 'settings', recordId: key, before: before?.value ?? null, after: value });
@@ -49,43 +51,26 @@ export async function saveSetting(user, key, body) {
   });
 }
 
-// ─── Tutup buku ──────────────────────────────────────────────────────────────
-export async function setLockDate(user, body) {
-  requireManager(user);
-  object(body, ['lockDate']);
-  const value = body.lockDate ? iso(date(body.lockDate, 'Tanggal tutup buku')) : '';
-  return prisma.$transaction(async (tx) => {
-    const before = await lockDate(tx);
-    await tx.setting.upsert({ where: { key: LOCK_KEY }, create: { key: LOCK_KEY, value, updatedBy: actorName(user) }, update: { value, updatedBy: actorName(user) } });
-    await audit(tx, user, { action: 'CLOSE', module: 'settings', recordId: LOCK_KEY, before: { lockDate: before }, after: { lockDate: value || null }, note: value ? `Tutup buku s.d. ${value}` : 'Buka seluruh periode' });
-    return { lockDate: value || null };
-  });
-}
+// ─── Stempel & tanda tangan ──────────────────────────────────────────────────
+const IMAGE = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/;
 
-// ─── Pajak dinamis ───────────────────────────────────────────────────────────
-export const listTaxes = () => prisma.tax.findMany({ orderBy: [{ isActive: 'desc' }, { code: 'asc' }] });
+export const getAssets = () => invoiceAssets();
 
-export async function saveTax(user, id, body) {
+export async function saveAssets(user, body) {
   requireManager(user);
-  object(body, ['code', 'name', 'rate', 'type', 'appliesTo', 'salesAccountId', 'purchaseAccountId', 'isActive']);
-  const data = {
-    code: text(body.code, 'Kode', 20).toUpperCase().replace(/[^A-Z0-9_]/g, '_'),
-    name: text(body.name, 'Nama pajak', 80),
-    rate: number(body.rate, 'Tarif', 0, 100),
-    type: choice(body.type, ['ADDITION', 'DEDUCTION'], 'Jenis'),
-    appliesTo: choice(body.appliesTo ?? 'BOTH', ['SALES', 'PURCHASE', 'BOTH'], 'Berlaku untuk'),
-    salesAccountId: optionalId(body.salesAccountId, 'Akun penjualan'),
-    purchaseAccountId: optionalId(body.purchaseAccountId, 'Akun pembelian'),
-    isActive: body.isActive === undefined ? true : bool(body.isActive),
-  };
-  if (data.appliesTo !== 'PURCHASE') ensure(data.salesAccountId, 'Akun penjualan wajib untuk pajak yang berlaku di invoice.');
-  if (data.appliesTo !== 'SALES') ensure(data.purchaseAccountId, 'Akun pembelian wajib untuk pajak yang berlaku di tagihan vendor.');
+  object(body, ['stamp', 'signature']);
+  const current = await invoiceAssets();
+  const next = { ...current };
+  for (const k of ['stamp', 'signature']) {
+    if (body[k] === undefined) continue;
+    const v = String(body[k] ?? '');
+    ensure(v === '' || (IMAGE.test(v) && v.length <= 700_000), 'Gambar harus PNG/JPG/WEBP maksimal ±500 KB.');
+    next[k] = v;
+  }
   return prisma.$transaction(async (tx) => {
-    const before = id ? await tx.tax.findUnique({ where: { id } }) : null;
-    if (id) ensure(before, 'Pajak tidak ditemukan.', 404);
-    const row = id ? await tx.tax.update({ where: { id }, data }) : await tx.tax.create({ data });
-    await audit(tx, user, { action: id ? 'UPDATE' : 'CREATE', module: 'settings', recordId: row.id, before, after: data, note: 'Pajak ' + data.code });
-    return row;
+    await tx.setting.upsert({ where: { key: ASSETS_KEY }, create: { key: ASSETS_KEY, value: next, updatedBy: actorName(user) }, update: { value: next, updatedBy: actorName(user) } });
+    await audit(tx, user, { action: 'UPDATE', module: 'settings', recordId: ASSETS_KEY, note: 'Ubah stempel / tanda tangan' });
+    return { stamp: Boolean(next.stamp), signature: Boolean(next.signature) };
   });
 }
 

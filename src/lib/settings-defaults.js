@@ -1,66 +1,55 @@
-// Nilai awal parameter. Dapat diubah Manajer Keuangan di /settings.
-// `fields` menjelaskan bentuk form; jenis "account" berarti dipilih dari bagan akun (nilai = kode akun).
+// Nilai awal parameter. Diubah Manajer Keuangan di /settings.
+// Data sensitif (rekening, nama penanda tangan) sengaja kosong di sini dan diisi di database.
 export const SETTING_DEFAULTS = {
   'company.profile': {
     label: 'Profil perusahaan',
-    hint: 'Tampil di kop invoice, laporan, dan cetakan.',
     value: {
-      name: 'PT. Total Quality Indonesia',
-      address: 'Jl. Raya Jemursari No. 85 B, Surabaya, Jawa Timur',
+      name: 'PT Total Quality Indonesia',
+      address: 'Jl. Raya Jemursari No. 85 B, Surabaya',
+      city: 'Surabaya',
       phone: '+62 31 848 4690',
-      email: 'finance@totalquality.co.id',
+      email: '',
       website: 'www.totalquality.co.id',
       npwp: '',
     },
-    fields: { name: 'Nama perusahaan', address: 'Alamat', phone: 'Telepon', email: 'Email finance', website: 'Website', npwp: 'NPWP' },
+    fields: { name: 'Nama perusahaan', address: 'Alamat', city: 'Kota (tempat tanda tangan)', phone: 'Telepon', email: 'Email finance', website: 'Website', npwp: 'NPWP' },
   },
-  'accounts.mapping': {
-    label: 'Pemetaan akun default',
-    hint: 'Akun yang dipakai otomatis saat invoice, tagihan, dan laporan diposting.',
-    value: {
-      receivable: '1131',
-      revenue: '4101',
-      salesDiscount: '4901',
-      payable: '2111',
-      expense: '5109',
-      bankFee: '7201',
-      retainedEarnings: '3201',
-      currentEarnings: '3202',
-      depreciationExpense: '6141',
-    },
-    fields: {
-      receivable: 'Piutang usaha',
-      revenue: 'Pendapatan jasa (default)',
-      salesDiscount: 'Potongan penjualan',
-      payable: 'Hutang usaha',
-      expense: 'Beban default tagihan vendor',
-      bankFee: 'Beban administrasi bank',
-      retainedEarnings: 'Laba ditahan',
-      currentEarnings: 'Laba tahun berjalan',
-      depreciationExpense: 'Beban penyusutan',
-    },
-    accountFields: true,
+  'invoice.seriesTQ': {
+    label: 'Seri TQ — kop surat, stempel, PPN',
+    value: { bankName: '', bankAccount: '', bankHolder: '', nextNumber: 1 },
+    fields: { bankName: 'Bank', bankAccount: 'No. rekening', bankHolder: 'Atas nama', nextNumber: 'Nomor berikutnya' },
   },
-  'invoice.print': {
-    label: 'Cetak invoice',
-    hint: 'Rekening pembayaran dan penanda tangan pada invoice.',
+  'invoice.seriesOPS': {
+    label: 'Seri Operasional — polos, tanpa PPN',
+    value: { bankName: '', bankAccount: '', bankHolder: '', nextNumber: 1 },
+    fields: { bankName: 'Bank', bankAccount: 'No. rekening', bankHolder: 'Atas nama', nextNumber: 'Nomor berikutnya' },
+  },
+  'invoice.document': {
+    label: 'Dokumen invoice',
     value: {
-      bankName: 'Bank Mandiri',
-      bankAccount: '',
-      bankHolder: 'PT. Total Quality Indonesia',
       signerName: '',
-      signerTitle: 'Manajer Keuangan',
-      footerNote: 'Mohon cantumkan nomor invoice pada berita transfer. Bukti potong PPh 23 mohon dikirim ke email finance.',
+      signerTitle: 'Finance Manager',
+      ppnRate: 11,
+      defaultDueDays: 14,
+      invoiceNote: 'Invoice dinyatakan LUNAS setelah pembayaran diterima dan terverifikasi.',
+      kwitansiNote: 'Kwitansi dinyatakan LUNAS setelah pembayaran diterima dan terverifikasi.',
     },
-    fields: { bankName: 'Nama bank', bankAccount: 'No. rekening', bankHolder: 'Atas nama', signerName: 'Nama penanda tangan', signerTitle: 'Jabatan penanda tangan', footerNote: 'Catatan kaki' },
+    fields: { signerName: 'Nama penanda tangan', signerTitle: 'Jabatan', ppnRate: 'Tarif PPN (%)', defaultDueDays: 'Jatuh tempo default (hari)', invoiceNote: 'Catatan invoice', kwitansiNote: 'Catatan kwitansi' },
   },
   'reminder.thresholds': {
-    label: 'Pengingat jatuh tempo (hari sebelum)',
-    value: { invoiceDueDays: 7, billDueDays: 7 },
-    fields: { invoiceDueDays: 'Invoice ke Copart', billDueDays: 'Tagihan vendor' },
+    label: 'Pengingat',
+    value: { invoiceDueDays: 7, followUpDays: 3 },
+    fields: { invoiceDueDays: 'Invoice akan jatuh tempo (hari sebelum)', followUpDays: 'Follow up setelah dikirim (hari)' },
+  },
+  'targets.department': {
+    label: 'Target kontrak tahunan per departemen',
+    value: { CCD: 0, BSD: 0, SDO: 0, HRD: 0, CSD: 0 },
+    fields: { CCD: 'CCD', BSD: 'BSD', SDO: 'SDO', HRD: 'HRD', CSD: 'CSD' },
   },
 };
 
 export const SETTING_KEYS = Object.keys(SETTING_DEFAULTS);
-// Tanggal tutup buku disimpan terpisah (bukan form umum): transaksi s.d. tanggal ini terkunci.
-export const LOCK_KEY = 'closing.lockDate';
+// Stempel & tanda tangan (gambar) disimpan terpisah, hanya dilayani ke pengguna yang login.
+export const ASSETS_KEY = 'invoice.assets';
+export const seriesKey = (series) => `invoice.series${series}`;
+export const sequenceKey = (series) => `invoice-${series}`;
