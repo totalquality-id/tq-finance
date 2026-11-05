@@ -57,3 +57,6 @@ next-env.d.ts
 
 # Data internal finance TQ (format & data asli) — jangan di-commit
 /Data/
+
+# Skrip impor data internal (berisi nama Copart) — jangan di-commit
+/scripts/private/

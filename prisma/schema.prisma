@@ -161,7 +161,7 @@ model Invoice {
   id           String    @id @default(cuid())
   number       String    @unique // INV-COP/NO/MM/YY
   series       String // TQ | OPS
-  seq          Int // nomor urut dalam seri
+  seq          Int? // nomor urut dalam seri; kosong untuk nomor format lama hasil impor
   docType      String    @default("INVOICE") // INVOICE | KWITANSI
   category     String    @default("KONTRAK") // KONTRAK | AKOMODASI | LAINNYA
   layout       String    @default("JASA") // JASA | TIKET

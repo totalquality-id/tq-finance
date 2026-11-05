@@ -163,7 +163,8 @@ export async function updateInvoice(user, id, body) {
   ensure(before.status !== 'VOID', 'Invoice sudah dibatalkan.', 409);
   ensure(!before.payments.length, 'Invoice sudah memiliki pembayaran. Hapus pembayaran terlebih dahulu untuk mengubah.', 409);
   const p = await parse(prisma, { ...body, series: before.series, milestoneId: undefined, seq: undefined });
-  const number = formatInvoiceNumber(p.shortCode, before.seq, p.v.date);
+  // Nomor format lama (hasil impor, tanpa nomor urut) dipertahankan apa adanya.
+  const number = before.seq ? formatInvoiceNumber(p.shortCode, before.seq, p.v.date) : before.number;
   return prisma.$transaction(async (tx) => {
     const row = await tx.invoice.update({ where: { id }, data: { ...docData(p), number } });
     if (before.milestone && before.projectId !== p.v.projectId) await tx.projectMilestone.update({ where: { id: before.milestone.id }, data: { invoiceId: null } });
@@ -262,8 +263,8 @@ export async function exportInvoices(user, f) {
   const { rows } = await listInvoices(f, { skip: 0, take: 10000 });
   const wb = XLSX.utils.book_new();
   for (const series of SERIES) {
-    const data = rows.filter((r) => r.series === series).sort((a, b) => a.seq - b.seq).map((r) => ({
-      'No.': r.seq, 'No. invoice': r.number, Tanggal: iso(r.date), 'Jatuh tempo': iso(r.dueDate), Copart: r.client.name, Kontrak: r.project?.name ?? '',
+    const data = rows.filter((r) => r.series === series).sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0) || String(a.number).localeCompare(String(b.number))).map((r) => ({
+      'No.': r.seq ?? '', 'No. invoice': r.number, Tanggal: iso(r.date), 'Jatuh tempo': iso(r.dueDate), Copart: r.client.name, Kontrak: r.project?.name ?? '',
       Tahap: r.milestone?.name ?? r.subject ?? '', Kategori: labelOf(r.category), Dokumen: labelOf(r.docType),
       DPP: Number(r.dpp), PPN: Number(r.ppn), Total: Number(r.total), Diterima: Number(r.paid), Sisa: round2(Number(r.total) - Number(r.paid)),
       Status: labelOf(r.status), Dikirim: r.sentAt ? `${iso(r.sentAt)} (${labelOf(r.sentVia)})` : '', 'Faktur pajak': r.taxInvoiceNo ?? '',
