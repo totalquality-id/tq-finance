@@ -59,6 +59,7 @@ export function date(value, name = "Tanggal") {
     Number.isFinite(d.getTime()) && d.toISOString().slice(0, 10) === str,
     name + " tidak valid.",
   );
+  ensure(d.getUTCFullYear() >= 2000 && d.getUTCFullYear() <= 2099, name + " harus di antara tahun 2000–2099.");
   return d;
 }
 export function month(value) {
