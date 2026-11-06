@@ -3,8 +3,8 @@ import { prisma } from '../prisma.js';
 import { actorName, audit } from '../audit.js';
 import { addDays, iso, today } from '../dates.js';
 import {
-  CATEGORIES, DOC_TYPES, FOLLOW_UP_CHANNELS, LAYOUTS, SEND_CHANNELS, SERIES, TAX_MODES,
-  computeInvoice, formatInvoiceNumber, nextFollowUp, paymentStatus, round2, suggestShortCode,
+  CATEGORIES, DOC_TYPES, FOLLOW_UP_CHANNELS, KINDS, LAYOUTS, SEND_CHANNELS, SERIES, TAX_MODES,
+  computeInvoice, kindCategory, formatInvoiceNumber, nextFollowUp, paymentStatus, round2, suggestShortCode,
 } from '../domain/billing.js';
 import { labelOf } from '../labels.js';
 import { getSettings } from '../settings.js';
@@ -17,7 +17,7 @@ const OPEN = ['UNPAID', 'PARTIAL'];
 
 const INCLUDE = {
   client: { select: { id: true, name: true, code: true, shortCode: true, npwp: true, address: true, city: true, pic: true, email: true, phone: true } },
-  project: { select: { id: true, code: true, name: true, contractNo: true } },
+  project: { select: { id: true, code: true, name: true, standard: true, contractNo: true } },
   payments: { orderBy: { date: 'asc' } },
   followUps: { orderBy: { date: 'desc' } },
   milestone: { select: { id: true, name: true } },
@@ -41,6 +41,7 @@ export async function listInvoices(f = {}, { skip = 0, take = 50 } = {}) {
   else if (INVOICE_STATUSES.includes(f.status)) where.status = f.status;
   if (SERIES.includes(f.series)) where.series = f.series;
   if (CATEGORIES.includes(f.category)) where.category = f.category;
+  if (KINDS.includes(f.kind)) where.kind = f.kind;
   if (f.clientId) where.clientId = String(f.clientId);
   if (f.projectId) where.projectId = String(f.projectId);
   if (f.from || f.to) where.date = { ...(f.from ? { gte: date(f.from) } : {}), ...(f.to ? { lte: date(f.to) } : {}) };
@@ -81,11 +82,11 @@ function parseItems(list, layout) {
 }
 
 async function parse(db, body) {
-  object(body, ['series', 'docType', 'category', 'layout', 'clientId', 'projectId', 'milestoneId', 'date', 'dueDate', 'attn', 'reference', 'subject', 'taxInvoiceNo', 'items', 'taxMode', 'notes', 'internalNote', 'seq']);
+  object(body, ['series', 'docType', 'kind', 'layout', 'clientId', 'projectId', 'milestoneId', 'date', 'dueDate', 'attn', 'reference', 'subject', 'taxInvoiceNo', 'items', 'taxMode', 'notes', 'internalNote', 'seq']);
   const v = {
     series: choice(body.series, SERIES, 'Seri invoice'),
     docType: choice(body.docType ?? 'INVOICE', DOC_TYPES, 'Jenis dokumen'),
-    category: choice(body.category ?? 'KONTRAK', CATEGORIES, 'Kategori'),
+    kind: choice(body.kind ?? 'TERMIN', KINDS, 'Jenis'),
     layout: choice(body.layout ?? 'JASA', LAYOUTS, 'Format rincian'),
     clientId: idOf(body.clientId, 'Copart'),
     projectId: optionalId(body.projectId, 'Kontrak'),
@@ -133,7 +134,7 @@ async function takeSeq(tx, series, manual) {
 }
 
 const docData = ({ v, calc }) => ({
-  series: v.series, docType: v.docType, category: v.category, layout: v.layout, clientId: v.clientId, projectId: v.projectId,
+  series: v.series, docType: v.docType, kind: v.kind, category: kindCategory(v.kind), layout: v.layout, clientId: v.clientId, projectId: v.projectId,
   date: v.date, dueDate: v.dueDate, attn: v.attn, reference: v.reference, subject: v.subject, taxInvoiceNo: v.taxInvoiceNo,
   notes: v.notes, internalNote: v.internalNote,
   items: calc.items, taxMode: calc.taxMode, ppnRate: calc.ppnRate, subtotal: calc.subtotal, dpp: calc.dpp, ppn: calc.ppn, total: calc.total,
@@ -258,18 +259,17 @@ export async function deletePayment(user, paymentId) {
   });
 }
 
-/** Rekap nomor invoice (pengganti sheet "NO INVOICE"). */
+/** Register nomor invoice (pengganti sheet "NO INVOICE"): satu sheet per seri ON / OFF. */
 export async function exportInvoices(user, f) {
   const { rows } = await listInvoices(f, { skip: 0, take: 10000 });
   const wb = XLSX.utils.book_new();
   for (const series of SERIES) {
     const data = rows.filter((r) => r.series === series).sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0) || String(a.number).localeCompare(String(b.number))).map((r) => ({
-      'No.': r.seq ?? '', 'No. invoice': r.number, Tanggal: iso(r.date), 'Jatuh tempo': iso(r.dueDate), Copart: r.client.name, Kontrak: r.project?.name ?? '',
-      Tahap: r.milestone?.name ?? r.subject ?? '', Kategori: labelOf(r.category), Dokumen: labelOf(r.docType),
-      DPP: Number(r.dpp), PPN: Number(r.ppn), Total: Number(r.total), Diterima: Number(r.paid), Sisa: round2(Number(r.total) - Number(r.paid)),
-      Status: labelOf(r.status), Dikirim: r.sentAt ? `${iso(r.sentAt)} (${labelOf(r.sentVia)})` : '', 'Faktur pajak': r.taxInvoiceNo ?? '',
+      [labelOf(series)]: r.seq ?? '', Tanggal: iso(r.date), Jenis: labelOf(r.kind).toUpperCase(), Program: r.project?.standard ?? r.project?.name ?? '', Copart: r.client.name,
+      'No. invoice': r.number, Keterangan: r.milestone?.name ?? r.subject ?? '', DPP: Number(r.dpp), PPN: Number(r.ppn), Total: Number(r.total), Diterima: Number(r.paid),
+      Sisa: round2(Number(r.total) - Number(r.paid)), Status: labelOf(r.status), 'Jatuh tempo': iso(r.dueDate), 'Faktur pajak': r.taxInvoiceNo ?? '',
     }));
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.length ? data : [{ 'No.': '' }]), labelOf(series));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.length ? data : [{ [labelOf(series)]: '' }]), labelOf(series));
   }
   await audit(null, user, { action: 'EXPORT', module: 'invoices', note: `Export ${rows.length} invoice` });
   return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });

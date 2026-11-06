@@ -119,17 +119,18 @@ model Project {
   clientId      String
   serviceType   String // SYSTEM | PROJECT | TRAINING | AUDIT | LAINNYA
   standard      String? // nama program, mis. Quality Management System (ISO 9001)
-  department    String? // CCD | BSD | SDO | HRD | CSD
-  presenter     String? // CCO/BSD/SDO, mis. FHR|YSF
+  department    String? // CCD | SDD | BSD | HRD | CSD
+  presenters    String[]  @default([]) // kode presenter, mis. [FHR, YSF]
+  fiscalYear    Int? // tahun omzet (sesuai Daftar Kontrak tahun tsb)
   contractNo    String?
   spkNo         String?
   contractDate  DateTime?
   contractValue Decimal   @default(0) @db.Decimal(18, 2)
   startDate     DateTime
   endDate       DateTime?
-  manager       String? // SDO pelaksana
-  status        String    @default("AKTIF") // AKTIF | DITAHAN | SELESAI | BATAL
-  description   String? // keterangan tambahan terkait keuangan
+  manager       String? // Pelaksana
+  status        String    @default("AKTIF") // MENUNGGU_DP | AKTIF | DITAHAN | SELESAI | BATAL
+  description   String? // keterangan (catatan presenter, keuangan, dll.)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -146,11 +147,19 @@ model ProjectMilestone {
   percent   Decimal   @default(0) @db.Decimal(7, 4)
   amount    Decimal   @default(0) @db.Decimal(18, 2)
   dueDate   DateTime?
+  notes     String?
   invoiceId String?   @unique
   project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   invoice   Invoice?  @relation(fields: [invoiceId], references: [id])
 
   @@index([projectId])
+}
+
+// Master presenter. Tersimpan otomatis saat diketik di form kontrak.
+model Presenter {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  createdAt DateTime @default(now())
 }
 
 // ─── INVOICE ─────────────────────────────────────────────────────────────────
@@ -163,7 +172,8 @@ model Invoice {
   series       String // TQ | OPS
   seq          Int? // nomor urut dalam seri; kosong untuk nomor format lama hasil impor
   docType      String    @default("INVOICE") // INVOICE | KWITANSI
-  category     String    @default("KONTRAK") // KONTRAK | AKOMODASI | LAINNYA
+  kind         String    @default("TERMIN") // TAHAP_DP | TERMIN | PELUNASAN | AUDIT | ADD_COST | AKOMODASI | TRANSPORTASI | KONSUMSI | LAINNYA
+  category     String    @default("KONTRAK") // turunan dari kind: KONTRAK | AKOMODASI | LAINNYA
   layout       String    @default("JASA") // JASA | TIKET
   clientId     String
   projectId    String?

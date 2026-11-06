@@ -3,8 +3,10 @@
 //   node --env-file=<env> scripts/import-data.mjs <import.json>
 import { readFileSync } from 'node:fs';
 import { prisma } from '../src/lib/prisma.js';
-import { paymentStatus, round2 } from '../src/lib/domain/billing.js';
-import { sequenceKey } from '../src/lib/settings-defaults.js';
+import { guessKind, kindCategory, normalizePresenter, paymentStatus, round2 } from '../src/lib/domain/billing.js';
+import { programGroup } from '../src/lib/domain/programs.js';
+import { getSettings } from '../src/lib/settings.js';
+import { seriesKey, sequenceKey } from '../src/lib/settings-defaults.js';
 
 const file = process.argv[2];
 if (!file) throw new Error('Pemakaian: import-data.mjs <import.json>');
@@ -26,11 +28,15 @@ for (const c of data.coparts) {
   let row = await prisma.contact.findFirst({ where: { type: 'CLIENT', OR: [{ name: { equals: c.name, mode: 'insensitive' } }, { shortCode: c.shortCode }] } });
   if (!row) {
     const seq = await prisma.sequence.upsert({ where: { key: 'contact-CLIENT' }, create: { key: 'contact-CLIENT', value: 1 }, update: { value: { increment: 1 } } });
-    row = await prisma.contact.create({ data: { code: `CP-${String(seq.value).padStart(4, '0')}`, type: 'CLIENT', name: c.name, shortCode: c.shortCode, paymentTermDays: 14, notes: ACTOR } });
+    row = await prisma.contact.create({ data: { code: `CP-${String(seq.value).padStart(4, '0')}`, type: 'CLIENT', name: c.name, shortCode: c.shortCode, paymentTermDays: 14 } });
     stat.coparts++;
   }
   contactId[c.shortCode] = row.id;
 }
+
+// ─── Presenter (master isian) ───────────────────────────────────────────────
+const presenterCodes = [...new Set(data.contracts.flatMap((k) => k.presenters ?? []).map(normalizePresenter).filter(Boolean))];
+for (const code of presenterCodes) await prisma.presenter.upsert({ where: { code }, create: { code }, update: {} });
 
 // ─── Kontrak ─────────────────────────────────────────────────────────────────
 for (const k of data.contracts) {
@@ -40,8 +46,10 @@ for (const k of data.contracts) {
   const seq = await prisma.sequence.upsert({ where: { key: 'project-' + year }, create: { key: 'project-' + year, value: 1 }, update: { value: { increment: 1 } } });
   const row = await prisma.project.create({
     data: {
-      code: `KTR-${year}-${String(seq.value).padStart(3, '0')}`, name: k.name, clientId: contactId[k.copart], serviceType: k.serviceType, standard: k.standard,
-      department: k.department, presenter: k.presenter, contractValue: k.contractValue, contractDate: day(k.contractDate), startDate: start,
+      code: `KTR-${year}-${String(seq.value).padStart(3, '0')}`, name: k.standard ?? 'Kontrak lama', clientId: contactId[k.copart],
+      serviceType: k.standard ? programGroup(k.standard) : 'LAINNYA', standard: k.standard, department: k.department,
+      presenters: (k.presenters ?? []).map(normalizePresenter).filter(Boolean), fiscalYear: k.fiscalYear ?? null,
+      contractValue: k.contractValue, contractDate: day(k.contractDate), startDate: start,
       status: k.status, description: k.description,
     },
   });
@@ -56,7 +64,7 @@ for (const t of data.termins) {
   if (await prisma.projectMilestone.count({ where: { projectId, name: t.name, dueDate } })) { stat.skipped++; continue; }
   const project = await prisma.project.findUnique({ where: { id: projectId }, select: { contractValue: true, _count: { select: { milestones: true } } } });
   await prisma.projectMilestone.create({
-    data: { projectId, sequence: project._count.milestones + 1, name: t.name, amount: t.amount, dueDate, percent: Number(project.contractValue) ? round2((t.amount / Number(project.contractValue)) * 100) : 0 },
+    data: { projectId, sequence: project._count.milestones + 1, name: t.name, amount: t.amount, dueDate, notes: t.notes ?? null, percent: Number(project.contractValue) ? round2((t.amount / Number(project.contractValue)) * 100) : 0 },
   });
   stat.termins++;
 }
@@ -69,12 +77,16 @@ for (const inv of data.akomodasi) {
   const total = round2(inv.items.reduce((s, i) => s + i.amount, 0));
   const paid = round2(inv.payments.reduce((s, p) => s + p.amount, 0));
   const date = day(inv.date);
+  // Jenis: transportasi / konsumsi bila seluruh uraiannya itu; selain itu akomodasi.
+  const kinds = [...new Set(inv.items.map((i) => guessKind(i.description)))];
+  const kind = kinds.length === 1 && ['TRANSPORTASI', 'KONSUMSI'].includes(kinds[0]) ? kinds[0] : 'AKOMODASI';
   await prisma.invoice.create({
     data: {
-      number: inv.number, series: 'OPS', seq: seqFree ? inv.seq : null, docType: 'INVOICE', category: 'AKOMODASI', layout: 'JASA',
+      number: inv.number, series: 'OPS', seq: seqFree ? inv.seq : null, docType: 'INVOICE', kind, category: kindCategory(kind), layout: 'JASA',
+      projectId: inv.contract ? map.contracts[inv.contract] ?? null : null,
       clientId: contactId[inv.copart], date, dueDate: addDays(date, 14), items: inv.items.map((i) => ({ description: i.description, amount: i.amount })),
       taxMode: 'NONE', ppnRate: 0, subtotal: total, dpp: total, ppn: 0, total, paid: Math.min(paid, total), status: paymentStatus(total, Math.min(paid, total)),
-      internalNote: ACTOR, sentAt: date, sentVia: 'EMAIL', createdBy: admin.id, creatorName: ACTOR,
+      sentAt: date, sentVia: 'EMAIL', createdBy: admin.id, creatorName: ACTOR,
       payments: { create: inv.payments.map((p) => ({ date: day(p.date), account: 'OPS', amount: p.amount, notes: p.notes, createdBy: admin.id, creatorName: ACTOR })) },
     },
   });
@@ -83,10 +95,13 @@ for (const inv of data.akomodasi) {
   stat.payments += inv.payments.length;
 }
 // Nomor seri Operasional berikutnya tidak boleh bertabrakan dengan nomor impor.
+// Bila belum ada urutan, mulai dari "Nomor berikutnya" di Pengaturan (nomor register Excel yang sudah terpakai).
 if (maxSeq) {
   const key = sequenceKey('OPS');
+  const { [seriesKey('OPS')]: cfg } = await getSettings([seriesKey('OPS')]);
+  const floor = Math.max(maxSeq, Number(cfg.nextNumber || 1) - 1);
   const cur = await prisma.sequence.findUnique({ where: { key } });
-  if (!cur || cur.value < maxSeq) await prisma.sequence.upsert({ where: { key }, create: { key, value: maxSeq }, update: { value: maxSeq } });
+  if (!cur || cur.value < floor) await prisma.sequence.upsert({ where: { key }, create: { key, value: floor }, update: { value: floor } });
 }
 
 await prisma.setting.upsert({ where: { key: MAP_KEY }, create: { key: MAP_KEY, value: { ...map, importedAt: new Date().toISOString() }, updatedBy: ACTOR }, update: { value: { ...map, importedAt: new Date().toISOString() }, updatedBy: ACTOR } });

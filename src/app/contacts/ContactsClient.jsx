@@ -1,11 +1,12 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { Plus, Edit, Trash2 } from 'lucide-react';
 import { Badge, DataTable, FilterBar, FormFields, Modal, Pager, useSubmit } from '@/components/ui';
 import { useDialog } from '@/components/DialogProvider';
 import { suggestShortCode } from '@/lib/domain/billing';
-import { idr } from '@/lib/labels';
+import { idr, labelOf } from '@/lib/labels';
 
 const EMPTY = { name: '', shortCode: '', npwp: '', isPkp: false, pic: '', email: '', phone: '', address: '', city: '', industry: '', paymentTermDays: 14, notes: '', isActive: true };
 
@@ -38,10 +39,10 @@ export default function ContactsClient({ data, page, canEdit }) {
         <DataTable rows={data.rows} empty="Belum ada Copart."
           columns={[
             { key: 'name', label: 'Copart', render: (c) => (<div><strong>{c.name}</strong><div className="muted">{c.shortCode}{c.industry ? ' · ' + c.industry : ''}</div></div>) },
+            { key: 'programs', label: 'Program', render: (c) => (c.projects.length ? <span className="chips">{c.projects.map((p) => <Link key={p.id} href={`/projects?q=${encodeURIComponent(c.name)}`} className="tag" title={[labelOf(p.status), p.description].filter(Boolean).join(' · ')}>{p.standard ?? p.name}</Link>)}</span> : '-') },
             { key: 'pic', label: 'Kontak', render: (c) => (<div>{c.pic ?? '-'}<div className="muted">{[c.phone, c.email].filter(Boolean).join(' · ')}</div></div>) },
             { key: 'city', label: 'Kota', render: (c) => c.city ?? '-' },
-            { key: 'npwp', label: 'NPWP', render: (c) => (c.npwp ? <span>{c.npwp}{c.isPkp && <span className="chip" style={{ marginLeft: 6 }}>PKP</span>}</span> : '-') },
-            { key: 'term', label: 'Termin', num: true, render: (c) => `${c.paymentTermDays} hari` },
+            { key: 'notes', label: 'Keterangan', render: (c) => <span className="muted">{c.notes ?? ''}</span> },
             { key: 'ar', label: 'Piutang', num: true, render: (c) => (c.receivable ? idr(c.receivable) : '-') },
             { key: 'st', label: 'Status', render: (c) => <Badge value={c.isActive ? 'AKTIF' : 'NONAKTIF'} label={c.isActive ? 'Aktif' : 'Nonaktif'} /> },
             ...(canEdit ? [{ key: 'a', label: '', render: (c) => (

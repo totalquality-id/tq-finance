@@ -42,9 +42,9 @@ export const SETTING_DEFAULTS = {
     fields: { invoiceDueDays: 'Invoice akan jatuh tempo (hari sebelum)', followUpDays: 'Follow up setelah dikirim (hari)' },
   },
   'targets.department': {
-    label: 'Target kontrak tahunan per departemen',
-    value: { CCD: 0, BSD: 0, SDO: 0, HRD: 0, CSD: 0 },
-    fields: { CCD: 'CCD', BSD: 'BSD', SDO: 'SDO', HRD: 'HRD', CSD: 'CSD' },
+    label: 'Target omzet tahunan per departemen',
+    value: { CCD: 0, SDD: 0, BSD: 0, HRD: 0, CSD: 0 },
+    fields: { CCD: 'CCD', SDD: 'SDD', BSD: 'BSD', HRD: 'HRD', CSD: 'CSD - WE' },
   },
 };
 

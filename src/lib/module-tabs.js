@@ -10,7 +10,7 @@ export const MODULE_TABS = {
       ['income', 'Laporan pemasukan', 'Penagihan'],
       ['invoices', 'Rekap invoice', 'Penagihan'],
       ['aging', 'Umur piutang', 'Penagihan'],
-      ['contracts', 'Pencapaian kontrak', 'Kontrak'],
+      ['contracts', 'Omzet per departemen', 'Kontrak'],
     ],
   },
 };

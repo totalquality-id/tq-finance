@@ -16,7 +16,7 @@ function EntryModal({ entry, row, canEdit, onClose }) {
   const { submit, busy } = useSubmit();
   const { showConfirm } = useDialog();
   const due = iso(entry.dueDate) ?? '';
-  const [form, setForm] = useState({ name: entry.label, amount: entry.termAmount ?? entry.amount, month: due.slice(0, 7), day: due.slice(8, 10) || '01' });
+  const [form, setForm] = useState({ name: entry.label, amount: entry.termAmount ?? entry.amount, month: due.slice(0, 7), day: due.slice(8, 10) || '01', notes: entry.notes ?? '' });
   const editable = canEdit && entry.kind === 'TERMIN' && !entry.invoiceId;
 
   const save = async (e) => {
@@ -25,7 +25,7 @@ function EntryModal({ entry, row, canEdit, onClose }) {
     const [y, m] = form.month.split('-').map(Number);
     const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
     const dueDate = `${form.month}-${String(Math.min(Number(form.day), last)).padStart(2, '0')}`;
-    if (await submit(`/api/projects/milestones/${entry.id}`, { method: 'PUT', body: { name: form.name, amount: Number(form.amount), dueDate } })) onClose();
+    if (await submit(`/api/projects/milestones/${entry.id}`, { method: 'PUT', body: { name: form.name, amount: Number(form.amount), dueDate, notes: form.notes } })) onClose();
   };
   const remove = async () => {
     if (await showConfirm(`Hapus termin "${entry.label}" (${idr(entry.amount)}) dari kontrak ${row.copart}?`, 'Hapus termin')) {
@@ -47,6 +47,7 @@ function EntryModal({ entry, row, canEdit, onClose }) {
               <div className="form-group"><label className="form-label required">Bulan penagihan</label><input className="form-input" type="month" required value={form.month} onChange={(e) => setForm({ ...form, month: e.target.value })} /></div>
               <div className="form-group"><label className="form-label required">Nominal</label><input className="form-input" type="number" min="0" step="any" required value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></div>
             </div>
+            <div className="form-group"><label className="form-label">Keterangan</label><input className="form-input" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
             <div className="modal-footer" style={{ padding: 0, justifyContent: 'space-between' }}>
               <button type="button" className="btn btn-danger-outline btn-sm" disabled={busy} onClick={remove}><Trash2 size={15} /> Hapus</button>
               <span className="row-actions">
@@ -62,6 +63,7 @@ function EntryModal({ entry, row, canEdit, onClose }) {
               <div><dt>{entry.invoiceId ? 'Jatuh tempo' : 'Rencana tagih'}</dt><dd>{formatDate(entry.dueDate)}</dd></div>
               <div><dt>Nominal</dt><dd>{idr(entry.amount)}</dd></div>
               <div><dt>Diterima</dt><dd>{idr(entry.paid)}</dd></div>
+              {entry.notes && <div style={{ gridColumn: '1 / -1' }}><dt>Keterangan</dt><dd>{entry.notes}</dd></div>}
             </dl>
             {entry.invoiceId && canEdit && <p className="muted">Sudah diinvoice — ubah atau batalkan lewat invoicenya.</p>}
             {entry.invoiceId && <div className="row-actions"><Link className="btn btn-primary btn-sm" href={`/invoices?q=${encodeURIComponent(entry.number)}`}>Buka invoice</Link></div>}
@@ -107,10 +109,9 @@ export default function BillingClient({ data, canEdit }) {
             {data.rows.length === 0 && <tr><td colSpan={14} className="muted" style={{ padding: 24, textAlign: 'center' }}>Belum ada termin atau invoice kontrak pada tahun ini.</td></tr>}
             {data.rows.map((r) => (
               <tr key={r.id}>
-                <td className="first">
+                <td className="first" title={r.note ?? ''}>
                   <strong>{r.copart}</strong>
-                  <div className="muted">{r.code ? <Link href={`/projects?q=${encodeURIComponent(r.code)}`}>{r.name}</Link> : r.name}{r.status && r.status !== 'AKTIF' ? ` · ${labelOf(r.status)}` : ''}</div>
-                  {r.note && <div className="muted" style={{ fontSize: 12 }}>{r.note}</div>}
+                  <div className="muted">{r.code ? <Link href={`/projects?q=${encodeURIComponent(r.copart)}`}>{r.name}</Link> : r.name}{r.status && r.status !== 'AKTIF' ? ` · ${labelOf(r.status)}` : ''}</div>
                 </td>
                 {r.months.map((entries, i) => (
                   <td key={i} className="num">

@@ -8,6 +8,8 @@ import { Badge, Card, DataTable, FilterBar, FormFields, Modal, Pager, Stat, useS
 import { useDialog } from '@/components/DialogProvider';
 import { ItemsEditor, TotalsBox, blankItem, num, r2 } from '@/components/finance';
 import { addDays, formatDate, iso, todayIso } from '@/lib/dates';
+import { KINDS } from '@/lib/domain/billing';
+import { termKind } from '@/lib/domain/programs';
 import { idr, labelOf } from '@/lib/labels';
 
 const STATUS_OPTS = [['OPEN', 'Belum lunas'], ['NOT_SENT', 'Belum dikirim'], ['FOLLOW_UP', 'Perlu follow up'], ['OVERDUE', 'Lewat jatuh tempo'], ['PAID', 'Lunas'], ['VOID', 'Dibatalkan']];
@@ -15,7 +17,7 @@ const isOverdue = (r) => ['UNPAID', 'PARTIAL'].includes(r.status) && iso(r.dueDa
 const sisa = (r) => r2(Number(r.total) - Number(r.paid));
 
 function SeriesPicker({ value, onChange, disabled }) {
-  const opts = [['TQ', 'Seri TQ', 'Kop surat & stempel · PPN · rekening PT'], ['OPS', 'Seri Operasional', 'Polos · tanpa PPN · rekening operasional']];
+  const opts = [['TQ', 'ON — Seri TQ', 'Kop surat & stempel · PPN · rekening PT'], ['OPS', 'OFF — Seri Operasional', 'Polos · tanpa PPN · rekening operasional']];
   return (
     <div className="series-picker" role="radiogroup" aria-label="Seri invoice">
       {opts.map(([v, title, desc]) => (
@@ -48,9 +50,10 @@ export default function InvoicesClient({ data, page, clients, projects, doc, ban
   const openNew = (preset = {}) => {
     setItems(preset.items ?? [blankItem()]);
     setTaxMode('PPN_INCLUDED');
-    setForm({ series: 'TQ', docType: 'INVOICE', category: 'KONTRAK', layout: 'JASA', clientId: '', projectId: '', milestoneId: '', date: todayIso(), dueDate: iso(addDays(new Date(todayIso()), doc.defaultDueDays)), attn: '', reference: '', subject: '', taxInvoiceNo: '', notes: '', internalNote: '', seq: '', ...preset });
+    setForm({ series: 'TQ', docType: 'INVOICE', kind: 'TERMIN', layout: 'JASA', clientId: '', projectId: '', milestoneId: '', date: todayIso(), dueDate: iso(addDays(new Date(todayIso()), doc.defaultDueDays)), attn: '', reference: '', subject: '', taxInvoiceNo: '', notes: '', internalNote: '', seq: '', ...preset });
   };
-  const termItem = (p, m) => [{ description: `Jasa ${p.name} — ${m.name}`, detail: `Termin ${m.sequence}/${p._count.milestones}`, amount: Number(m.amount) }];
+  const termItem = (p, m) => [{ description: `Jasa ${p.standard ?? p.name} — ${m.name}`, detail: `Termin ${m.sequence}/${p._count.milestones}`, amount: Number(m.amount) }];
+  const termPreset = (p, m) => ({ kind: termKind(m.name, m.sequence - 1, p._count.milestones), subject: '' });
 
   // Dibuka dari kontrak / notifikasi: /invoices?new=1&projectId=..&milestoneId=..
   useEffect(() => {
@@ -59,7 +62,7 @@ export default function InvoicesClient({ data, page, clients, projects, doc, ban
     const m = p?.milestones.find((x) => x.id === params.get('milestoneId'));
     const client = clients.find((c) => c.id === p?.clientId);
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    openNew(p ? { clientId: p.clientId, projectId: p.id, milestoneId: m?.id ?? '', reference: p.spkNo ?? p.contractNo ?? '', attn: client?.pic ?? '', dueDate: due(todayIso(), p.clientId), items: m ? termItem(p, m) : [blankItem()] } : {});
+    openNew(p ? { ...(m ? termPreset(p, m) : {}), clientId: p.clientId, projectId: p.id, milestoneId: m?.id ?? '', reference: p.spkNo ?? p.contractNo ?? '', attn: client?.pic ?? '', dueDate: due(todayIso(), p.clientId), items: m ? termItem(p, m) : [blankItem()] } : {});
     router.replace(pathname);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -67,7 +70,7 @@ export default function InvoicesClient({ data, page, clients, projects, doc, ban
   const openEdit = (r) => {
     setItems(r.items.map((it) => ({ ...blankItem(), ...it, detail: it.detail ?? '', route: it.route ?? '', ref: it.ref ?? '' })));
     setTaxMode(r.taxMode);
-    setForm({ id: r.id, number: r.number, series: r.series, docType: r.docType, category: r.category, layout: r.layout, clientId: r.clientId, projectId: r.projectId ?? '', milestoneId: '', date: iso(r.date), dueDate: iso(r.dueDate), attn: r.attn ?? '', reference: r.reference ?? '', subject: r.subject ?? '', taxInvoiceNo: r.taxInvoiceNo ?? '', notes: r.notes ?? '', internalNote: r.internalNote ?? '', seq: '' });
+    setForm({ id: r.id, number: r.number, series: r.series, docType: r.docType, kind: r.kind, layout: r.layout, clientId: r.clientId, projectId: r.projectId ?? '', milestoneId: '', date: iso(r.date), dueDate: iso(r.dueDate), attn: r.attn ?? '', reference: r.reference ?? '', subject: r.subject ?? '', taxInvoiceNo: r.taxInvoiceNo ?? '', notes: r.notes ?? '', internalNote: r.internalNote ?? '', seq: '' });
   };
 
   const setValues = (fn) => setForm((s) => {
@@ -83,9 +86,9 @@ export default function InvoicesClient({ data, page, clients, projects, doc, ban
     if (n.milestoneId && n.milestoneId !== s.milestoneId) {
       const p = projects.find((x) => x.id === n.projectId);
       const m = p?.milestones.find((x) => x.id === n.milestoneId);
-      if (m) setItems(termItem(p, m));
+      if (m) { setItems(termItem(p, m)); return { ...n, ...termPreset(p, m) }; }
     }
-    if (n.category === 'AKOMODASI' && s.category !== 'AKOMODASI') return { ...n, series: 'OPS', layout: 'TIKET' };
+    if (n.kind !== s.kind && ['AKOMODASI', 'TRANSPORTASI', 'KONSUMSI'].includes(n.kind)) return { ...n, series: 'OPS', layout: n.kind === 'TRANSPORTASI' ? 'TIKET' : 'JASA' };
     if (n.date !== s.date) return { ...n, dueDate: due(n.date, n.clientId) };
     return n;
   });
@@ -121,8 +124,8 @@ export default function InvoicesClient({ data, page, clients, projects, doc, ban
       <FilterBar filters={[
         { type: 'search', label: 'Cari', placeholder: 'No. invoice / Copart / PO' },
         { name: 'status', label: 'Status', type: 'select', options: STATUS_OPTS },
-        { name: 'series', label: 'Seri', type: 'select', options: [['TQ', 'Seri TQ'], ['OPS', 'Seri Operasional']] },
-        { name: 'category', label: 'Kategori', type: 'select', options: ['KONTRAK', 'AKOMODASI', 'LAINNYA'] },
+        { name: 'series', label: 'Seri', type: 'select', options: [['TQ', 'ON'], ['OPS', 'OFF']] },
+        { name: 'kind', label: 'Jenis', type: 'select', options: KINDS },
         { name: 'clientId', label: 'Copart', type: 'select', options: clients.map((c) => [c.id, c.name]) },
         { name: 'from', label: 'Dari', type: 'date' },
         { name: 'to', label: 'Sampai', type: 'date' },
@@ -144,7 +147,9 @@ export default function InvoicesClient({ data, page, clients, projects, doc, ban
         <DataTable rows={data.rows} onRowClick={(r) => setDetailId(r.id)} empty="Belum ada invoice."
           columns={[
             { key: 'number', label: 'Invoice', render: (r) => (<div><strong>{r.number}</strong><div className="muted">{formatDate(r.date)} · {labelOf(r.series)}</div></div>) },
-            { key: 'client', label: 'Copart', render: (r) => (<div>{r.client.name}<div className="muted">{r.milestone?.name ?? r.subject ?? r.project?.name ?? labelOf(r.category)}</div></div>) },
+            { key: 'kind', label: 'Jenis', render: (r) => labelOf(r.kind) },
+            { key: 'program', label: 'Program', render: (r) => r.project?.standard ?? r.project?.name ?? '-' },
+            { key: 'client', label: 'Copart', render: (r) => r.client.name },
             { key: 'due', label: 'Jatuh tempo', render: (r) => <span className={isOverdue(r) ? 'text-red' : ''}>{formatDate(r.dueDate)}</span> },
             { key: 'total', label: 'Total', num: true, render: (r) => idr(r.total) },
             { key: 'rest', label: 'Sisa', num: true, render: (r) => (r.status === 'VOID' ? '-' : idr(sisa(r))) },
@@ -159,7 +164,7 @@ export default function InvoicesClient({ data, page, clients, projects, doc, ban
           <div className="stack">
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <Badge value={detail.series} /><Badge value={detail.status} />{isOverdue(detail) && <Badge value="OVERDUE" />}{detail.state && <Badge value={detail.state} />}
-              <span className="chip">{labelOf(detail.docType)}</span><span className="chip">{labelOf(detail.category)}</span>
+              <span className="chip">{labelOf(detail.docType)}</span><span className="chip">{labelOf(detail.kind)}</span>
             </div>
             {detail.status === 'VOID' && <div className="notice">Dibatalkan: {detail.voidReason}</div>}
             <dl className="detail-grid">
@@ -253,7 +258,7 @@ export default function InvoicesClient({ data, page, clients, projects, doc, ban
           <form onSubmit={savePay}>
             <FormFields values={pay} setValues={setPay} fields={[
               { name: 'date', label: 'Tanggal terima', type: 'date', required: true },
-              { name: 'account', label: 'Masuk ke rekening', type: 'select', options: [['TQ', `Seri TQ — ${banks.TQ}`], ['OPS', `Operasional — ${banks.OPS}`]], noEmpty: true },
+              { name: 'account', label: 'Masuk ke rekening', type: 'select', options: [['TQ', `ON — ${banks.TQ}`], ['OPS', `OFF — ${banks.OPS}`]], noEmpty: true },
               { name: 'amount', label: 'Dana diterima', type: 'number', min: 0, step: 'any', required: true },
               { name: 'pph23', label: 'PPh 23 dipotong Copart', type: 'number', min: 0, step: 'any' },
               { name: 'buktiPotongNo', label: 'No. bukti potong' },
@@ -272,9 +277,9 @@ export default function InvoicesClient({ data, page, clients, projects, doc, ban
             <SeriesPicker value={form.series} disabled={Boolean(form.id)} onChange={(v) => setForm({ ...form, series: v })} />
             <FormFields values={form} setValues={setValues} columns={3} fields={[
               { name: 'clientId', label: 'Copart', type: 'select', options: clients.map((c) => [c.id, c.name]), required: true },
-              { name: 'category', label: 'Kategori', type: 'select', options: ['KONTRAK', 'AKOMODASI', 'LAINNYA'], noEmpty: true },
+              { name: 'kind', label: 'Jenis', type: 'select', options: KINDS, noEmpty: true },
               { name: 'docType', label: 'Perihal', type: 'select', options: ['INVOICE', 'KWITANSI'], noEmpty: true },
-              { name: 'projectId', label: 'Kontrak', type: 'select', options: clientProjects.map((p) => [p.id, p.name]) },
+              { name: 'projectId', label: 'Kontrak', type: 'select', options: clientProjects.map((p) => [p.id, p.standard ?? p.name]) },
               ...(form.id ? [] : [{ name: 'milestoneId', label: 'Termin', type: 'select', options: milestones.map((m) => [m.id, `${m.name} · ${idr(m.amount)}`]), hidden: (v) => !v.projectId }]),
               { name: 'attn', label: 'Attn.' },
               { name: 'date', label: 'Tanggal', type: 'date', required: true },

@@ -16,8 +16,8 @@ export default async function InvoicesPage({ searchParams }) {
     listInvoices(q, q),
     contactOptions(),
     prisma.project.findMany({
-      where: { status: { in: ['AKTIF', 'DITAHAN'] } },
-      select: { id: true, code: true, name: true, clientId: true, contractNo: true, spkNo: true, milestones: { where: { invoiceId: null }, orderBy: { sequence: 'asc' }, select: { id: true, name: true, amount: true, sequence: true } }, _count: { select: { milestones: true } } },
+      where: { status: { in: ['MENUNGGU_DP', 'AKTIF', 'DITAHAN'] } },
+      select: { id: true, code: true, name: true, standard: true, clientId: true, contractNo: true, spkNo: true, milestones: { where: { invoiceId: null }, orderBy: { sequence: 'asc' }, select: { id: true, name: true, amount: true, sequence: true } }, _count: { select: { milestones: true } } },
       orderBy: { code: 'desc' },
     }),
     getSettings(['invoice.document', 'invoice.seriesTQ', 'invoice.seriesOPS', 'reminder.thresholds']),

@@ -16,6 +16,7 @@ export const MODULES = {
   notifications: { read: ALL, write: ALL },
   contacts: { read: ALL, write: FINANCE },
   projects: { read: ALL, write: FINANCE },
+  presenters: { read: ALL, write: FINANCE },
   invoices: { read: ALL, write: FINANCE },
   billing: { read: ALL },
   reports: { read: ALL },

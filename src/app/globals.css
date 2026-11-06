@@ -1641,3 +1641,12 @@ details.card[open] > summary::after { transform: rotate(-135deg) translateY(-3px
 .asset-preview img { max-height: 96px; max-width: 90%; }
 .monitor button.cell-entry { border: none; font: inherit; cursor: pointer; width: 100%; text-align: right; }
 .monitor button.cell-entry:hover { outline: 1px solid var(--brand-300); }
+
+/* Isian tag (presenter). */
+.tag-input { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-height: 42px; padding: 5px 8px; border: 1px solid var(--gray-300); border-radius: var(--radius-md); background: var(--white); cursor: text; }
+.tag-input:focus-within { border-color: var(--brand-500); box-shadow: var(--focus-ring); }
+.tag-input input { flex: 1; min-width: 90px; border: none; outline: none; font: inherit; padding: 4px 2px; background: transparent; }
+.tag { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 8px; border-radius: 6px; background: var(--brand-50); color: var(--brand-700); font-size: 13px; font-weight: 600; }
+.tag button { display: grid; place-items: center; border: none; background: none; color: inherit; cursor: pointer; padding: 2px; border-radius: 4px; }
+.tag button:hover { background: var(--brand-100); }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }

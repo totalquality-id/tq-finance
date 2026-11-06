@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { agingBucket, computeInvoice, formatInvoiceNumber, nextFollowUp, normalizeShortCode, paymentStatus, suggestShortCode, terbilang } from '../src/lib/domain/billing.js';
+import { agingBucket, computeInvoice, guessKind, kindCategory, parsePresenters, formatInvoiceNumber, nextFollowUp, normalizeShortCode, paymentStatus, suggestShortCode, terbilang } from '../src/lib/domain/billing.js';
 import { canAccess, canWrite } from '../src/lib/access.js';
+import { programGroup, programOrder, termKind } from '../src/lib/domain/programs.js';
 
 test('nomor invoice baku INV-COP/NO/MM/YY', () => {
   assert.equal(formatInvoiceNumber('ELD', 1247, '2026-09-18T00:00:00Z'), 'INV-ELD/1247/09/26');
@@ -72,4 +73,32 @@ test('hak akses: pimpinan hanya baca, staf tidak bisa ubah pengaturan', () => {
   assert.equal(canAccess('STAF_KEUANGAN', '/users'), false);
   assert.equal(canAccess('MANAJER_KEUANGAN', '/api/settings/assets', 'PUT'), true);
   assert.equal(canAccess('MANAJER_KEUANGAN', '/journals'), false);
+});
+
+test('presenter dari Daftar Kontrak: kode jadi presenter, sisanya keterangan', () => {
+  assert.deepEqual(parsePresenters('BLA|JHN 3%'), { codes: ['BLA', 'JHN'], notes: ['JHN 3%'] });
+  assert.deepEqual(parsePresenters('BLA.JHN|KK'), { codes: ['BLA', 'JHN', 'KK'], notes: [] });
+  assert.deepEqual(parsePresenters('CSD NO BONUS'), { codes: [], notes: ['CSD NO BONUS'] });
+  assert.deepEqual(parsePresenters('DSY | JHN 3%').codes, ['DSY', 'JHN']);
+});
+
+test('jenis invoice & kelompoknya', () => {
+  assert.equal(guessKind('Tiket pesawat SUB-BPN'), 'TRANSPORTASI');
+  assert.equal(guessKind('Uang makan'), 'KONSUMSI');
+  assert.equal(guessKind('Pelunasan QMS'), 'PELUNASAN');
+  assert.equal(guessKind('Tahap DP'), 'TAHAP_DP');
+  assert.equal(guessKind('Audit MTC ke 3'), 'AUDIT');
+  assert.equal(kindCategory('TRANSPORTASI'), 'AKOMODASI');
+  assert.equal(kindCategory('PELUNASAN'), 'KONTRAK');
+  assert.equal(termKind('Tahap Kontrak', 0, 6), 'TAHAP_DP');
+  assert.equal(termKind('Bulan Kelima', 5, 6), 'TERMIN');
+  assert.equal(termKind('Pelunasan', 1, 2), 'PELUNASAN');
+});
+
+test('program: kelompok & Audit didahulukan', () => {
+  assert.equal(programGroup('AUDIT MTC KE 3'), 'AUDIT');
+  assert.equal(programGroup('ISO 2026 ABC'), 'SYSTEM');
+  assert.equal(programGroup('SUNTZU'), 'TRAINING');
+  const list = [{ standard: 'QMS' }, { standard: 'AUDIT' }].sort(programOrder);
+  assert.equal(list[0].standard, 'AUDIT');
 });

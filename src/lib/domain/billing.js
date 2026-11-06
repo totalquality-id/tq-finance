@@ -4,11 +4,47 @@
 export const SERIES = ['TQ', 'OPS'];
 export const DOC_TYPES = ['INVOICE', 'KWITANSI'];
 export const CATEGORIES = ['KONTRAK', 'AKOMODASI', 'LAINNYA'];
+// Jenis invoice baku (kolom JENIS di register nomor invoice) dan kelompoknya.
+export const KINDS = ['TAHAP_DP', 'TERMIN', 'PELUNASAN', 'AUDIT', 'ADD_COST', 'AKOMODASI', 'TRANSPORTASI', 'KONSUMSI', 'LAINNYA'];
+export const KIND_CATEGORY = { TAHAP_DP: 'KONTRAK', TERMIN: 'KONTRAK', PELUNASAN: 'KONTRAK', AUDIT: 'KONTRAK', ADD_COST: 'KONTRAK', AKOMODASI: 'AKOMODASI', TRANSPORTASI: 'AKOMODASI', KONSUMSI: 'AKOMODASI', LAINNYA: 'LAINNYA' };
+export const kindCategory = (kind) => KIND_CATEGORY[kind] ?? 'LAINNYA';
+
+/** Tebak jenis dari teks tahap/keterangan lama (register & piutang akomodasi). */
+export function guessKind(text) {
+  const t = String(text ?? '').toUpperCase();
+  if (/TIKET|TRANSPORT|GRAB|BBM|E-?TOL|PESAWAT/.test(t)) return 'TRANSPORTASI';
+  if (/KONSUMSI|UANG MAKAN|MAKAN/.test(t)) return 'KONSUMSI';
+  if (/PELUNASAN/.test(t)) return 'PELUNASAN';
+  if (/TAHA?P (KONTRAK|DP)|^DP\b|UANG MUKA/.test(t)) return 'TAHAP_DP';
+  if (/ADD COST|TAMBAHAN/.test(t)) return 'ADD_COST';
+  if (/^(AUDIT )?(MAINT|MTC)|AUDIT MAINT|AUDIT MTC/.test(t)) return 'AUDIT';
+  if (/TERMIN|BULAN|BATCH/.test(t)) return 'TERMIN';
+  return null;
+}
 export const LAYOUTS = ['JASA', 'TIKET'];
 export const TAX_MODES = ['NONE', 'PPN_INCLUDED', 'PPN_EXCLUDED'];
 export const SEND_CHANNELS = ['EKSPEDISI', 'EMAIL', 'WHATSAPP', 'LANGSUNG'];
 export const FOLLOW_UP_CHANNELS = ['TELEPON', 'EMAIL', 'WHATSAPP', 'KUNJUNGAN'];
-export const DEPARTMENTS = ['CCD', 'BSD', 'SDO', 'HRD', 'CSD'];
+export const DEPARTMENTS = ['CCD', 'SDD', 'BSD', 'HRD', 'CSD'];
+// Omzet dihitung dari nilai kontrak yang sudah berjalan (DP dibayar), bukan yang menunggu DP / batal.
+export const OMZET_EXCLUDED = ['MENUNGGU_DP', 'BATAL'];
+
+/** Pisahkan teks presenter Excel: "BLA.JHN|JHN 3%" → kode [BLA, JHN], catatan ["JHN 3%"]. */
+export function parsePresenters(raw) {
+  const codes = [], notes = [];
+  for (const part of String(raw ?? '').split('|')) {
+    const p = part.trim().toUpperCase();
+    if (!p) continue;
+    const m = p.match(/^([A-Z]{2,4}(?:\.[A-Z]{2,4})*)\b\s*(.*)$/);
+    if (!m || DEPARTMENTS.includes(m[1])) { notes.push(part.trim()); continue; }
+    const list = m[1].split('.');
+    for (const c of list) if (!codes.includes(c)) codes.push(c);
+    if (m[2]) notes.push(`${list[list.length - 1]} ${m[2]}`.trim());
+  }
+  return { codes, notes };
+}
+
+export const normalizePresenter = (v) => { const s = String(v ?? '').trim().toUpperCase().replace(/[^A-Z0-9]/g, ''); return s.length >= 2 && s.length <= 12 ? s : null; };
 // Batas nilai dokumen yang wajib bermeterai (UU 10/2020): Rp5.000.000.
 export const METERAI_THRESHOLD = 5_000_000;
 

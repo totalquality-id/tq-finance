@@ -2,7 +2,7 @@ import * as XLSX from 'xlsx';
 import { prisma } from '../prisma.js';
 import { audit } from '../audit.js';
 import { iso, today } from '../dates.js';
-import { AGING_BUCKETS, DEPARTMENTS, agingBucket, round2 } from '../domain/billing.js';
+import { AGING_BUCKETS, DEPARTMENTS, OMZET_EXCLUDED, agingBucket, round2 } from '../domain/billing.js';
 import { labelOf } from '../labels.js';
 import { getSettings } from '../settings.js';
 import { date, ensure } from '../validation.js';
@@ -75,25 +75,34 @@ export async function aging(f = {}) {
   return { asOf, buckets: AGING_BUCKETS, parties: Object.values(parties).sort((a, b) => b.total - a.total), items, totals };
 }
 
-// ─── Pencapaian kontrak per departemen ──────────────────────────────────────
+// ─── Omzet (nilai kontrak) per departemen ───────────────────────────────────
 export async function contractAchievement(f) {
   const year = yearOf(f);
   const [{ 'targets.department': targets }, contracts] = await Promise.all([
     getSettings(['targets.department']),
-    prisma.project.findMany({ where: { status: { not: 'BATAL' }, contractDate: { gte: new Date(Date.UTC(year, 0, 1)), lte: new Date(Date.UTC(year, 11, 31)) } }, include: { client: { select: { name: true } } }, orderBy: { contractDate: 'asc' } }),
+    prisma.project.findMany({ where: { fiscalYear: year }, include: { client: { select: { name: true } } }, orderBy: [{ contractDate: 'asc' }, { client: { name: 'asc' } }] }),
   ]);
+  const counted = contracts.filter((c) => !OMZET_EXCLUDED.includes(c.status));
   const depts = DEPARTMENTS.map((d) => {
-    const achieved = round2(contracts.filter((c) => c.department === d).reduce((s, c) => s + Number(c.contractValue), 0));
+    const list = counted.filter((c) => c.department === d);
+    const achieved = round2(list.reduce((s, c) => s + Number(c.contractValue), 0));
     const target = Number(targets[d] ?? 0);
-    return { department: d, target, achieved, count: contracts.filter((c) => c.department === d).length, pct: target ? round2((achieved / target) * 100) : null };
+    return { department: d, target, achieved, count: list.length, pct: target ? round2((achieved / target) * 100) : null };
   });
-  const noDept = contracts.filter((c) => !c.department);
   const totalTarget = round2(depts.reduce((s, d) => s + d.target, 0));
-  const totalAchieved = round2(contracts.reduce((s, c) => s + Number(c.contractValue), 0));
+  const totalAchieved = round2(counted.reduce((s, c) => s + Number(c.contractValue), 0));
+  const pending = contracts.filter((c) => c.status === 'MENUNGGU_DP');
   return {
-    year, depts, totals: { target: totalTarget, achieved: totalAchieved, pct: totalTarget ? round2((totalAchieved / totalTarget) * 100) : null, unassigned: noDept.length },
-    contracts: contracts.map((c) => ({ id: c.id, code: c.code, name: c.name, copart: c.client.name, program: c.standard, department: c.department, presenter: c.presenter, contractDate: c.contractDate, value: Number(c.contractValue), status: c.status })),
+    year, depts,
+    totals: { target: totalTarget, achieved: totalAchieved, pct: totalTarget ? round2((totalAchieved / totalTarget) * 100) : null, pending: round2(pending.reduce((s, c) => s + Number(c.contractValue), 0)), pendingCount: pending.length },
+    contracts: contracts.map((c) => ({ id: c.id, code: c.code, name: c.name, copart: c.client.name, program: c.standard ?? c.name, department: c.department, presenters: c.presenters, contractDate: c.contractDate, value: Number(c.contractValue), status: c.status, counted: !OMZET_EXCLUDED.includes(c.status), description: c.description })),
   };
+}
+
+/** Omzet tahun berjalan (dipakai dashboard). */
+export async function omzet(year) {
+  const r = await prisma.project.aggregate({ where: { fiscalYear: year, status: { notIn: OMZET_EXCLUDED } }, _sum: { contractValue: true }, _count: true });
+  return { value: Number(r._sum.contractValue ?? 0), count: r._count };
 }
 
 // ─── Monitoring penagihan (kontrak × bulan) ─────────────────────────────────
@@ -104,9 +113,9 @@ export async function billingMonitor(f) {
   const [milestones, adhoc] = await Promise.all([
     prisma.projectMilestone.findMany({
       where: { project: { status: { not: 'BATAL' } }, OR: [{ dueDate: { gte: start, lte: end } }, { invoice: { is: { date: { gte: start, lte: end } } } }] },
-      include: { project: { select: { id: true, code: true, name: true, status: true, description: true, client: { select: { name: true } } } }, invoice: { select: { id: true, number: true, date: true, total: true, paid: true, status: true, dueDate: true } } },
+      include: { project: { select: { id: true, code: true, name: true, standard: true, status: true, description: true, client: { select: { name: true } } } }, invoice: { select: { id: true, number: true, date: true, total: true, paid: true, status: true, dueDate: true } } },
     }),
-    prisma.invoice.findMany({ where: { status: { not: 'VOID' }, category: 'KONTRAK', date: { gte: start, lte: end }, milestone: { is: null } }, include: { client: { select: { name: true } }, project: { select: { id: true, code: true, name: true, status: true, description: true } } } }),
+    prisma.invoice.findMany({ where: { status: { not: 'VOID' }, category: 'KONTRAK', date: { gte: start, lte: end }, milestone: { is: null } }, include: { client: { select: { name: true } }, project: { select: { id: true, code: true, name: true, standard: true, status: true, description: true } } } }),
   ]);
   const rows = {};
   const cell = (rowKey, base, month, entry) => {
@@ -119,15 +128,15 @@ export async function billingMonitor(f) {
     const when = inv ? inv.date : m.dueDate;
     if (!when || new Date(when).getUTCFullYear() !== year) continue;
     const state = inv ? (inv.status === 'PAID' ? 'PAID' : new Date(inv.dueDate) < now ? 'OVERDUE' : 'INVOICED') : (m.dueDate && new Date(m.dueDate) < now ? 'LATE' : 'PLANNED');
-    cell(m.project.id, { id: m.project.id, code: m.project.code, name: m.project.name, copart: m.project.client.name, status: m.project.status, note: m.project.description }, new Date(when).getUTCMonth(), {
-      id: m.id, kind: 'TERMIN', projectId: m.project.id, label: m.name, amount: inv ? Number(inv.total) : Number(m.amount), termAmount: Number(m.amount), dueDate: m.dueDate,
+    cell(m.project.id, { id: m.project.id, code: m.project.code, name: m.project.standard ?? m.project.name, copart: m.project.client.name, status: m.project.status, note: m.project.description }, new Date(when).getUTCMonth(), {
+      id: m.id, kind: 'TERMIN', projectId: m.project.id, label: m.name, amount: inv ? Number(inv.total) : Number(m.amount), termAmount: Number(m.amount), dueDate: m.dueDate, notes: m.notes,
       paid: inv ? Number(inv.paid) : 0, state, invoiceId: inv?.id ?? null, number: inv?.number ?? null,
     });
   }
   for (const inv of adhoc) {
     const key = inv.project?.id ?? 'copart-' + inv.clientId;
     const state = inv.status === 'PAID' ? 'PAID' : new Date(inv.dueDate) < now ? 'OVERDUE' : 'INVOICED';
-    cell(key, { id: key, code: inv.project?.code ?? '', name: inv.project?.name ?? 'Tanpa kontrak', copart: inv.client.name, status: inv.project?.status ?? null, note: inv.project?.description ?? null }, new Date(inv.date).getUTCMonth(), {
+    cell(key, { id: key, code: inv.project?.code ?? '', name: inv.project?.standard ?? inv.project?.name ?? 'Tanpa kontrak', copart: inv.client.name, status: inv.project?.status ?? null, note: inv.project?.description ?? null }, new Date(inv.date).getUTCMonth(), {
       id: inv.id, kind: 'INVOICE', label: inv.subject ?? 'Invoice', amount: Number(inv.total), paid: Number(inv.paid), state, invoiceId: inv.id, number: inv.number, dueDate: inv.dueDate,
     });
   }
@@ -161,7 +170,7 @@ function sheetRows(tab, r) {
     case 'invoices': return r.months.map((m) => ({ Bulan: m.label, Jumlah: m.count, DPP: m.dpp, PPN: m.ppn, Total: m.total, 'Seri TQ': m.TQ, 'Seri Operasional': m.OPS, Kontrak: m.KONTRAK, Akomodasi: m.AKOMODASI, Lainnya: m.LAINNYA, Diterima: m.paid }))
       .concat([{ Bulan: 'TOTAL', Jumlah: r.totals.count, DPP: r.totals.dpp, PPN: r.totals.ppn, Total: r.totals.total, 'Seri TQ': r.totals.TQ, 'Seri Operasional': r.totals.OPS, Kontrak: r.totals.KONTRAK, Akomodasi: r.totals.AKOMODASI, Lainnya: r.totals.LAINNYA, Diterima: r.totals.paid }]);
     case 'aging': return r.items.map((x) => ({ Nomor: x.number, Seri: labelOf(x.series), Copart: x.party, Tanggal: d(x.date), 'Jatuh tempo': d(x.dueDate), 'Hari lewat': x.days, Total: x.total, Sisa: x.outstanding, Umur: AGING_BUCKETS.find(([k]) => k === x.bucket)[1] }));
-    case 'contracts': return r.contracts.map((c) => ({ Kode: c.code, 'Tgl kontrak': d(c.contractDate), Copart: c.copart, Program: c.program ?? c.name, Departemen: c.department ?? '', Presenter: c.presenter ?? '', Nilai: c.value, Status: labelOf(c.status) }));
+    case 'contracts': return r.contracts.map((c) => ({ 'Tgl kontrak': d(c.contractDate), Copart: c.copart, Program: c.program, Departemen: c.department ? labelOf(c.department) : '', Presenter: c.presenters.join(' | '), Omzet: c.counted ? c.value : 0, 'Nilai kontrak': c.value, Status: labelOf(c.status), Keterangan: c.description ?? '' }));
     case 'billing': return r.rows.map((row) => ({ Copart: row.copart, Kontrak: row.name, ...Object.fromEntries(MONTHS.map((m, i) => [m, round2(row.months[i].reduce((s, e) => s + e.amount, 0)) || ''])), Total: row.total, Keterangan: row.note ?? '' }))
       .concat([{ Copart: 'Target penagihan', ...Object.fromEntries(MONTHS.map((m, i) => [m, r.months[i].target])), Total: r.totals.target }, { Copart: 'Tertagih', ...Object.fromEntries(MONTHS.map((m, i) => [m, r.months[i].collected])), Total: r.totals.collected }, { Copart: 'Outstanding', ...Object.fromEntries(MONTHS.map((m, i) => [m, r.months[i].outstanding])), Total: r.totals.outstanding }]);
     default: return [];

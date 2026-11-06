@@ -1,5 +1,6 @@
 // Data contoh penagihan untuk development (JANGAN dijalankan di produksi).
 // Semua data dibuat lewat service aplikasi agar perilakunya sama dengan input pengguna.
+import { termKind } from '../src/lib/domain/programs.js';
 import { prisma } from '../src/lib/prisma.js';
 import { saveContact } from '../src/lib/services/contacts.js';
 import { saveProject } from '../src/lib/services/projects.js';
@@ -30,19 +31,19 @@ const six = (total, start) => ['Tahap Kontrak', 'Bulan Pertama', 'Bulan Kedua', 
   const d = new Date(start); d.setUTCMonth(d.getUTCMonth() + i);
   return { name, percent: 100 / 6, amount: Math.round(total / 6), dueDate: d.toISOString().slice(0, 10) };
 });
-const k1 = await contract({ name: 'Quality Management System (ISO 9001)', standard: 'Quality Management System (ISO 9001)', clientId: c.dbg.id, serviceType: 'SYSTEM', department: 'CCD', presenter: 'ZOL|YSF', contractNo: 'KTR/TQ/2026/041', contractDate: '2026-06-02', contractValue: 225000000, startDate: '2026-06-05', manager: 'Ammar', milestones: six(225000000, '2026-06-05') });
-const k2 = await contract({ name: 'Excellence Management System', standard: 'Excellence Management System', clientId: c.pjm.id, serviceType: 'SYSTEM', department: 'CCD', presenter: 'FHR|YSF', contractNo: 'PO-PJM-26-0177', contractDate: '2026-08-10', contractValue: 480000000, startDate: '2026-08-10', manager: 'Tim SDO',
+const k1 = await contract({ name: 'QMS', standard: 'QMS', clientId: c.dbg.id, serviceType: 'SYSTEM', department: 'CCD', presenters: ['ZOL', 'YSF'], fiscalYear: 2026, contractNo: 'KTR/TQ/2026/041', contractDate: '2026-06-02', contractValue: 225000000, startDate: '2026-06-05', manager: 'Ammar', milestones: six(225000000, '2026-06-05') });
+const k2 = await contract({ name: 'EMS', standard: 'EMS', clientId: c.pjm.id, serviceType: 'SYSTEM', department: 'CCD', presenters: ['FHR', 'YSF'], fiscalYear: 2026, contractNo: 'PO-PJM-26-0177', contractDate: '2026-08-10', contractValue: 480000000, startDate: '2026-08-10', manager: 'Tim SDD',
   milestones: [{ name: 'Tahap DP', percent: 50, amount: 240000000, dueDate: '2026-08-12' }, { name: 'Pelunasan', percent: 50, amount: 240000000, dueDate: '2026-11-20' }] });
-const k3 = await contract({ name: 'Audit Maintenance ke-3', standard: 'Audit Maintenance', clientId: c.ka.id, serviceType: 'AUDIT', department: 'CCD', presenter: 'RZK|YSF', contractDate: '2026-09-01', contractValue: 48000000, startDate: '2026-09-15',
+const k3 = await contract({ name: 'AUDIT', standard: 'AUDIT', clientId: c.ka.id, serviceType: 'AUDIT', department: 'CCD', presenters: ['RZK', 'YSF'], fiscalYear: 2026, description: 'Audit ke-3', contractDate: '2026-09-01', contractValue: 48000000, startDate: '2026-09-15',
   milestones: [{ name: 'Sebelum pelaksanaan audit', percent: 100, amount: 48000000, dueDate: '2026-09-10' }] });
-const k4 = await contract({ name: 'Sun Tzu Leadership Training', standard: 'Sun Tzu Leadership Training', clientId: c.pks.id, serviceType: 'TRAINING', department: 'BSD', presenter: 'BLA|JHN', contractDate: '2026-10-01', contractValue: 68100000, startDate: '2026-10-20',
+const k4 = await contract({ name: 'SUNTZU', standard: 'SUNTZU', clientId: c.pks.id, serviceType: 'TRAINING', department: 'BSD', presenters: ['BLA', 'JHN'], fiscalYear: 2026, description: 'JHN 3%', contractDate: '2026-10-01', contractValue: 68100000, startDate: '2026-10-20',
   milestones: [{ name: 'Tahap DP', percent: 50, amount: 34050000, dueDate: '2026-10-05' }, { name: 'Pelunasan', percent: 50, amount: 34050000, dueDate: '2026-11-25' }] });
 
 const ms = async (projectId) => prisma.projectMilestone.findMany({ where: { projectId }, orderBy: { sequence: 'asc' } });
 const termin = async (k, idx, date, dueDate, series = 'TQ') => {
-  const m = (await ms(k.id))[idx];
+  const list = await ms(k.id), m = list[idx];
   return createInvoice(user, {
-    series, category: 'KONTRAK', clientId: k.clientId, projectId: k.id, milestoneId: m.id, date, dueDate, reference: k.contractNo ?? undefined,
+    series, kind: termKind(m.name, idx, list.length), clientId: k.clientId, projectId: k.id, milestoneId: m.id, date, dueDate, reference: k.contractNo ?? undefined,
     taxMode: series === 'TQ' ? 'PPN_INCLUDED' : 'NONE',
     items: [{ description: `Jasa ${k.name} — ${m.name}`, detail: `Termin ${idx + 1}`, amount: Number(m.amount) }],
   });
@@ -65,11 +66,11 @@ await pay(tr, '2026-10-20');
 
 // Akomodasi (tiket & transportasi konsultan) — seri operasional, format tiket.
 const tiket = await createInvoice(user, {
-  series: 'OPS', category: 'AKOMODASI', layout: 'TIKET', clientId: c.pjm.id, date: '2026-10-21', dueDate: '2026-11-04', subject: 'Biaya Transportasi — Audit EMS Balikpapan',
+  series: 'OPS', kind: 'TRANSPORTASI', layout: 'TIKET', clientId: c.pjm.id, date: '2026-10-21', dueDate: '2026-11-04', subject: 'Biaya Transportasi — Audit EMS Balikpapan',
   items: [{ description: 'Budi Santoso', route: 'SUB – BPN', ref: 'KQ7X2M', amount: 1650000 }, { description: 'Budi Santoso', route: 'BPN – SUB', ref: 'KQ7X2N', amount: 1725000 }],
 });
 await send(tiket, '2026-10-22', 'EMAIL');
-await createInvoice(user, { series: 'TQ', category: 'LAINNYA', docType: 'KWITANSI', clientId: c.pas.id, date: '2026-11-02', dueDate: '2026-11-16', taxMode: 'PPN_INCLUDED', items: [{ description: 'Add cost pendampingan tambahan QMS', amount: 20000000 }] });
+await createInvoice(user, { series: 'TQ', kind: 'ADD_COST', docType: 'KWITANSI', clientId: c.pas.id, date: '2026-11-02', dueDate: '2026-11-16', taxMode: 'PPN_INCLUDED', items: [{ description: 'Add cost pendampingan tambahan QMS', amount: 20000000 }] });
 
 const bcrypt = (await import('bcryptjs')).default;
 for (const [name, email, role] of [['Staf Keuangan', 'staf.finance@totalquality.co.id', 'STAF_KEUANGAN'], ['Direktur', 'direktur@totalquality.co.id', 'PIMPINAN']]) {

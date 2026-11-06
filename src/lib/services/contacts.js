@@ -1,6 +1,7 @@
 import { prisma } from '../prisma.js';
 import { audit, diff } from '../audit.js';
 import { normalizeShortCode, round2, suggestShortCode } from '../domain/billing.js';
+import { programOrder } from '../domain/programs.js';
 import { bool, ensure, int, npwp, object, text } from '../validation.js';
 import { searchOr } from './common.js';
 
@@ -10,12 +11,12 @@ export async function listContacts(f = {}, { skip = 0, take = 50 } = {}) {
   const or = searchOr(f.q, ['name', 'code', 'shortCode', 'pic', 'city', 'npwp']);
   if (or) where.OR = or;
   const [rows, total] = await Promise.all([
-    prisma.contact.findMany({ where, skip, take, orderBy: [{ isActive: 'desc' }, { name: 'asc' }] }),
+    prisma.contact.findMany({ where, skip, take, orderBy: [{ isActive: 'desc' }, { name: 'asc' }], include: { projects: { where: { status: { not: 'BATAL' } }, select: { id: true, code: true, name: true, standard: true, status: true, description: true, contractValue: true, fiscalYear: true, startDate: true }, orderBy: { startDate: 'asc' } } } }),
     prisma.contact.count({ where }),
   ]);
   const inv = await prisma.invoice.groupBy({ by: ['clientId'], where: { clientId: { in: rows.map((r) => r.id) }, status: { in: ['UNPAID', 'PARTIAL'] } }, _sum: { total: true, paid: true } });
   const ar = Object.fromEntries(inv.map((r) => [r.clientId, round2(Number(r._sum.total ?? 0) - Number(r._sum.paid ?? 0))]));
-  return { rows: rows.map((r) => ({ ...r, receivable: ar[r.id] ?? 0 })), total };
+  return { rows: rows.map((r) => ({ ...r, projects: [...r.projects].sort(programOrder), receivable: ar[r.id] ?? 0 })), total };
 }
 
 /** Pilihan Copart ringkas untuk form. */

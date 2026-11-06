@@ -72,18 +72,25 @@ function Aging({ d }) {
 }
 
 function Contracts({ d }) {
+  const counted = d.contracts.filter((c) => c.counted).length;
   return (
     <div className="stack">
       <table className="report">
-        <thead><tr><th>Departemen</th><th className="num">Kontrak</th><th className="num">Target {d.year}</th><th className="num">Tercapai</th><th className="num">%</th></tr></thead>
+        <thead><tr><th>Departemen</th><th className="num">Kontrak</th><th className="num">Target {d.year}</th><th className="num">Omzet</th><th className="num">%</th></tr></thead>
         <tbody>
-          {d.depts.map((r) => <tr key={r.department}><td>{r.department}</td><td className="num">{r.count}</td><td className="num">{acc(r.target)}</td><td className="num">{acc(r.achieved)}</td><td className="num">{pct(r.pct)}</td></tr>)}
-          <tr className="grand"><td>Total</td><td className="num">{d.contracts.length}</td><td className="num">{acc(d.totals.target)}</td><td className="num">{acc(d.totals.achieved)}</td><td className="num">{pct(d.totals.pct)}</td></tr>
+          {d.depts.map((r) => <tr key={r.department}><td>{labelOf(r.department)}</td><td className="num">{r.count}</td><td className="num">{acc(r.target)}</td><td className="num">{acc(r.achieved)}</td><td className="num">{pct(r.pct)}</td></tr>)}
+          <tr className="grand"><td>Total</td><td className="num">{counted}</td><td className="num">{acc(d.totals.target)}</td><td className="num">{acc(d.totals.achieved)}</td><td className="num">{pct(d.totals.pct)}</td></tr>
+          {d.totals.pendingCount > 0 && <tr><td className="muted">Menunggu DP (belum dihitung)</td><td className="num muted">{d.totals.pendingCount}</td><td /><td className="num muted">{acc(d.totals.pending)}</td><td /></tr>}
         </tbody>
       </table>
       <table className="report">
-        <thead><tr><th>Tgl kontrak</th><th>Copart</th><th>Program</th><th>Dept.</th><th>Presenter</th><th className="num">Nilai</th><th>Status</th></tr></thead>
-        <tbody>{d.contracts.map((c) => <tr key={c.id}><td className="nowrap">{formatDate(c.contractDate)}</td><td>{c.copart}</td><td>{c.program ?? c.name}</td><td>{c.department ?? '-'}</td><td>{c.presenter ?? '-'}</td><td className="num">{acc(c.value)}</td><td><Badge value={c.status} /></td></tr>)}</tbody>
+        <thead><tr><th>Tgl kontrak</th><th>Copart</th><th>Program</th><th>Dept.</th><th>Presenter</th><th className="num">Omzet</th><th>Status</th><th>Keterangan</th></tr></thead>
+        <tbody>{d.contracts.map((c) => (
+          <tr key={c.id} className={c.counted ? '' : 'muted'}>
+            <td className="nowrap">{formatDate(c.contractDate)}</td><td>{c.copart}</td><td>{c.program}</td><td>{c.department ?? '-'}</td>
+            <td>{c.presenters.length ? c.presenters.join(', ') : '-'}</td><td className="num">{acc(c.value)}</td><td><Badge value={c.status} /></td><td className="muted">{c.description ?? ''}</td>
+          </tr>
+        ))}</tbody>
       </table>
     </div>
   );

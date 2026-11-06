@@ -22,7 +22,7 @@ export default function DashboardClient({ data }) {
         <Kpi label="Piutang belum lunas" value={idr(data.ar.total)} icon={FileText} tone={data.ar.overdue ? 'red' : 'navy'} href="/invoices?status=OPEN" hint={data.ar.overdue ? `${idr(data.ar.overdue)} lewat jatuh tempo` : `${data.ar.count} invoice terbuka`} />
         <Kpi label="Kontrak berjalan" value={data.projects.active} icon={Briefcase} href="/projects?status=AKTIF" hint={`Nilai kontrak ${idr(data.projects.contractValue)}`} />
         <Kpi label="Pendapatan bulan ini" value={idr(data.month.revenue)} icon={CalendarRange} href="/reports?tab=invoices" hint={`Diterima ${idr(data.month.received)}`} />
-        <Kpi label="Omset tahun berjalan" value={idr(data.ytd.revenue)} icon={TrendingUp} href="/reports?tab=invoices" hint={`${data.ytd.count} invoice`} />
+        <Kpi label="Omset tahun berjalan" value={idr(data.ytd.revenue)} icon={TrendingUp} href="/reports?tab=invoices" hint={`${data.ytd.count} kontrak`} />
       </div>
 
       <div className="grid-2">

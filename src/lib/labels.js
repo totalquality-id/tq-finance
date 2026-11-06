@@ -2,7 +2,8 @@
 export const LABELS = {
   // invoice
   UNPAID: 'Belum dibayar', PARTIAL: 'Dibayar sebagian', PAID: 'Lunas', VOID: 'Dibatalkan', OVERDUE: 'Jatuh tempo',
-  TQ: 'Seri TQ', OPS: 'Seri Operasional',
+  TQ: 'ON', OPS: 'OFF',
+  TAHAP_DP: 'Tahap DP', TERMIN: 'Termin', PELUNASAN: 'Pelunasan', ADD_COST: 'Add Cost', TRANSPORTASI: 'Transportasi', KONSUMSI: 'Konsumsi',
   INVOICE: 'Invoice', KWITANSI: 'Kwitansi',
   KONTRAK: 'Kontrak', AKOMODASI: 'Akomodasi', LAINNYA: 'Lainnya',
   JASA: 'Jasa', TIKET: 'Tiket / transportasi',
@@ -11,10 +12,10 @@ export const LABELS = {
   TELEPON: 'Telepon', KUNJUNGAN: 'Kunjungan',
   NOT_SENT: 'Belum dikirim', SENT: 'Terkirim', FOLLOW_UP: 'Perlu follow up',
   // kontrak
-  AKTIF: 'Berjalan', DITAHAN: 'Ditunda', SELESAI: 'Close', BATAL: 'Batal', NONAKTIF: 'Nonaktif',
+  MENUNGGU_DP: 'Menunggu DP', AKTIF: 'Berjalan', DITAHAN: 'Ditunda', SELESAI: 'Close', BATAL: 'Batal', NONAKTIF: 'Nonaktif',
   SYSTEM: 'System', PROJECT: 'Project', TRAINING: 'Training', AUDIT: 'Audit',
   PLANNED: 'Belum ditagih', INVOICED: 'Sudah diinvoice',
-  CCD: 'CCD', BSD: 'BSD', SDO: 'SDO', HRD: 'HRD', CSD: 'CSD',
+  CCD: 'CCD', SDD: 'SDD', BSD: 'BSD', HRD: 'HRD', CSD: 'CSD - WE',
   // kontak
   CLIENT: 'Copart',
   // peran
@@ -27,8 +28,9 @@ const green = 'badge-success', yellow = 'badge-warning', red = 'badge-danger', b
 export const STATUS_STYLES = {
   UNPAID: yellow, PARTIAL: blue, PAID: green, VOID: gray, OVERDUE: red,
   TQ: navy, OPS: gray, KONTRAK: navy, AKOMODASI: orange, LAINNYA: gray,
+  TAHAP_DP: navy, TERMIN: navy, PELUNASAN: navy, AUDIT: blue, ADD_COST: blue, TRANSPORTASI: orange, KONSUMSI: orange,
   NOT_SENT: gray, SENT: blue, FOLLOW_UP: orange,
-  AKTIF: green, DITAHAN: yellow, SELESAI: navy, BATAL: gray, NONAKTIF: gray,
+  MENUNGGU_DP: yellow, AKTIF: green, DITAHAN: yellow, SELESAI: navy, BATAL: gray, NONAKTIF: gray,
   PLANNED: gray, INVOICED: blue,
 };
 
