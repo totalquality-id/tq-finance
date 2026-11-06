@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { agingBucket, computeInvoice, guessKind, kindCategory, parsePresenters, formatInvoiceNumber, nextFollowUp, normalizeShortCode, paymentStatus, suggestShortCode, terbilang } from '../src/lib/domain/billing.js';
+import { agingBucket, computeInvoice, guessKind, kindCategory, meteraiRequired, normalizeMeteraiSn, parsePresenters, formatInvoiceNumber, nextFollowUp, normalizeShortCode, paymentStatus, suggestShortCode, terbilang } from '../src/lib/domain/billing.js';
 import { canAccess, canWrite } from '../src/lib/access.js';
 import { programGroup, programOrder, termKind } from '../src/lib/domain/programs.js';
 
@@ -101,4 +101,12 @@ test('program: kelompok & Audit didahulukan', () => {
   assert.equal(programGroup('SUNTZU'), 'TRAINING');
   const list = [{ standard: 'QMS' }, { standard: 'AUDIT' }].sort(programOrder);
   assert.equal(list[0].standard, 'AUDIT');
+});
+
+test('e-Meterai: wajib untuk kwitansi ≥ Rp5 juta, no. seri dibakukan', () => {
+  assert.equal(meteraiRequired('KWITANSI', 5_000_000), true);
+  assert.equal(meteraiRequired('KWITANSI', 4_999_999), false);
+  assert.equal(meteraiRequired('INVOICE', 50_000_000), false);
+  assert.equal(normalizeMeteraiSn(' 7f2a-1b3c 4d5e6f7a8b9c0d '), '7F2A1B3C4D5E6F7A8B9C0D');
+  assert.equal(normalizeMeteraiSn(''), null);
 });

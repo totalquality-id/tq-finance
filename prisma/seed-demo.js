@@ -70,7 +70,7 @@ const tiket = await createInvoice(user, {
   items: [{ description: 'Budi Santoso', route: 'SUB – BPN', ref: 'KQ7X2M', amount: 1650000 }, { description: 'Budi Santoso', route: 'BPN – SUB', ref: 'KQ7X2N', amount: 1725000 }],
 });
 await send(tiket, '2026-10-22', 'EMAIL');
-await createInvoice(user, { series: 'TQ', kind: 'ADD_COST', docType: 'KWITANSI', clientId: c.pas.id, date: '2026-11-02', dueDate: '2026-11-16', taxMode: 'PPN_INCLUDED', items: [{ description: 'Add cost pendampingan tambahan QMS', amount: 20000000 }] });
+await createInvoice(user, { series: 'TQ', kind: 'ADD_COST', docType: 'KWITANSI', meterai: true, clientId: c.pas.id, date: '2026-11-02', dueDate: '2026-11-16', taxMode: 'PPN_INCLUDED', items: [{ description: 'Add cost pendampingan tambahan QMS', amount: 20000000 }] });
 
 const bcrypt = (await import('bcryptjs')).default;
 for (const [name, email, role] of [['Staf Keuangan', 'staf.finance@totalquality.co.id', 'STAF_KEUANGAN'], ['Direktur', 'direktur@totalquality.co.id', 'PIMPINAN']]) {

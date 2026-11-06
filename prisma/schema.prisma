@@ -183,6 +183,8 @@ model Invoice {
   reference    String? // No. PO / SPK Copart
   subject      String? // judul rincian, mis. Biaya Transportasi — Audit Maintenance
   taxInvoiceNo String? // No. faktur pajak
+  meterai      Boolean  @default(false) // dibubuhi e-Meterai
+  meteraiSn    String?  @unique // No. seri e-Meterai (dari portal e-Meterai)
   items        Json // [{description, detail, route, ref, amount}]
   taxMode      String    @default("NONE") // NONE | PPN_INCLUDED | PPN_EXCLUDED
   ppnRate      Decimal   @default(11) @db.Decimal(5, 2)

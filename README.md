@@ -24,7 +24,7 @@ Stack sama dengan prohaba-hse: Next.js 16 (App Router, JS), Auth.js v5, Prisma 7
 | Rekening | Rekening PT (Pengaturan → Seri TQ) | Rekening operasional (Pengaturan → Seri Operasional) |
 | Nomor | `INV-COP/1276/11/26` (melanjutkan rekap 1xxx) | `INV-COP/2301/11/26` (melanjutkan rekap 2xxx) |
 
-Kwitansi ≥ Rp5.000.000 menampilkan kotak e-Meterai (meterai tidak dicetak sebagai gambar). Seluruh invoice kedua seri tercatat di laporan yang sama.
+Invoice / kwitansi bisa memakai e-Meterai: centang "Pakai e-Meterai", cetak ke PDF (tersedia ruang kosong di samping tanda tangan), bubuhkan di portal e-Meterai resmi, lalu catat no. serinya. Kwitansi ≥ Rp5.000.000 wajib bermeterai. Seluruh invoice kedua seri tercatat di laporan yang sama.
 
 ## Data internal
 

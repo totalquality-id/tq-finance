@@ -4,12 +4,12 @@ import { actorName, audit } from '../audit.js';
 import { addDays, iso, today } from '../dates.js';
 import {
   CATEGORIES, DOC_TYPES, FOLLOW_UP_CHANNELS, KINDS, LAYOUTS, SEND_CHANNELS, SERIES, TAX_MODES,
-  computeInvoice, kindCategory, formatInvoiceNumber, nextFollowUp, paymentStatus, round2, suggestShortCode,
+  computeInvoice, normalizeMeteraiSn, kindCategory, formatInvoiceNumber, nextFollowUp, paymentStatus, round2, suggestShortCode,
 } from '../domain/billing.js';
 import { labelOf } from '../labels.js';
 import { getSettings } from '../settings.js';
 import { seriesKey, sequenceKey } from '../settings-defaults.js';
-import { array, choice, date, ensure, id as idOf, int, number, object, optionalDate, optionalId, text } from '../validation.js';
+import { array, bool, choice, date, ensure, id as idOf, int, number, object, optionalDate, optionalId, text } from '../validation.js';
 import { searchOr } from './common.js';
 
 export const INVOICE_STATUSES = ['UNPAID', 'PARTIAL', 'PAID', 'VOID'];
@@ -82,7 +82,7 @@ function parseItems(list, layout) {
 }
 
 async function parse(db, body) {
-  object(body, ['series', 'docType', 'kind', 'layout', 'clientId', 'projectId', 'milestoneId', 'date', 'dueDate', 'attn', 'reference', 'subject', 'taxInvoiceNo', 'items', 'taxMode', 'notes', 'internalNote', 'seq']);
+  object(body, ['series', 'docType', 'kind', 'layout', 'clientId', 'projectId', 'milestoneId', 'date', 'dueDate', 'attn', 'reference', 'subject', 'taxInvoiceNo', 'items', 'taxMode', 'notes', 'internalNote', 'seq', 'meterai']);
   const v = {
     series: choice(body.series, SERIES, 'Seri invoice'),
     docType: choice(body.docType ?? 'INVOICE', DOC_TYPES, 'Jenis dokumen'),
@@ -99,6 +99,7 @@ async function parse(db, body) {
     taxInvoiceNo: text(body.taxInvoiceNo, 'No. faktur pajak', 40, true),
     notes: text(body.notes, 'Catatan', 1000, true),
     internalNote: text(body.internalNote, 'Catatan internal', 1000, true),
+    meterai: bool(body.meterai),
     seq: body.seq === undefined || body.seq === null || body.seq === '' ? null : int(body.seq, 'Nomor urut', 1, 999999),
   };
   ensure(v.dueDate >= v.date, 'Jatuh tempo tidak boleh sebelum tanggal invoice.');
@@ -136,7 +137,7 @@ async function takeSeq(tx, series, manual) {
 const docData = ({ v, calc }) => ({
   series: v.series, docType: v.docType, kind: v.kind, category: kindCategory(v.kind), layout: v.layout, clientId: v.clientId, projectId: v.projectId,
   date: v.date, dueDate: v.dueDate, attn: v.attn, reference: v.reference, subject: v.subject, taxInvoiceNo: v.taxInvoiceNo,
-  notes: v.notes, internalNote: v.internalNote,
+  notes: v.notes, internalNote: v.internalNote, meterai: v.meterai,
   items: calc.items, taxMode: calc.taxMode, ppnRate: calc.ppnRate, subtotal: calc.subtotal, dpp: calc.dpp, ppn: calc.ppn, total: calc.total,
 });
 
@@ -198,6 +199,22 @@ export async function markSent(user, id, body) {
   return prisma.$transaction(async (tx) => {
     const row = await tx.invoice.update({ where: { id }, data });
     await audit(tx, user, { action: 'SEND', module: 'invoices', recordId: id, after: { sentAt: iso(data.sentAt), via: data.sentVia } });
+    return row;
+  });
+}
+
+/** e-Meterai: tandai dipakai & catat no. seri setelah dibubuhkan di portal (boleh walau invoice sudah dibayar). */
+export async function setMeterai(user, id, body) {
+  object(body, ['meterai', 'meteraiSn']);
+  const inv = await prisma.invoice.findUnique({ where: { id } });
+  ensure(inv && inv.status !== 'VOID', 'Invoice tidak ditemukan.', 404);
+  const meteraiSn = normalizeMeteraiSn(text(body.meteraiSn, 'No. seri e-Meterai', 40, true));
+  ensure(!meteraiSn || /^[A-Z0-9]{10,30}$/.test(meteraiSn), 'No. seri e-Meterai harus 10–30 huruf/angka.');
+  const data = { meterai: Boolean(meteraiSn) || bool(body.meterai), meteraiSn };
+  if (meteraiSn) ensure(!(await prisma.invoice.findFirst({ where: { meteraiSn, id: { not: id } } })), 'No. seri e-Meterai sudah dipakai di invoice lain.', 409);
+  return prisma.$transaction(async (tx) => {
+    const row = await tx.invoice.update({ where: { id }, data });
+    await audit(tx, user, { action: 'UPDATE', module: 'invoices', recordId: id, before: { meterai: inv.meterai, meteraiSn: inv.meteraiSn }, after: data, note: 'e-Meterai' });
     return row;
   });
 }
@@ -267,7 +284,7 @@ export async function exportInvoices(user, f) {
     const data = rows.filter((r) => r.series === series).sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0) || String(a.number).localeCompare(String(b.number))).map((r) => ({
       [labelOf(series)]: r.seq ?? '', Tanggal: iso(r.date), Jenis: labelOf(r.kind).toUpperCase(), Program: r.project?.standard ?? r.project?.name ?? '', Copart: r.client.name,
       'No. invoice': r.number, Keterangan: r.milestone?.name ?? r.subject ?? '', DPP: Number(r.dpp), PPN: Number(r.ppn), Total: Number(r.total), Diterima: Number(r.paid),
-      Sisa: round2(Number(r.total) - Number(r.paid)), Status: labelOf(r.status), 'Jatuh tempo': iso(r.dueDate), 'Faktur pajak': r.taxInvoiceNo ?? '',
+      Sisa: round2(Number(r.total) - Number(r.paid)), Status: labelOf(r.status), 'Jatuh tempo': iso(r.dueDate), 'Faktur pajak': r.taxInvoiceNo ?? '', 'e-Meterai': r.meteraiSn ?? (r.meterai ? 'Ya' : ''),
     }));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.length ? data : [{ [labelOf(series)]: '' }]), labelOf(series));
   }

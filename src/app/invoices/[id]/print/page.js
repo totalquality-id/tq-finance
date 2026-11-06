@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation';
 import { requirePage } from '@/lib/page';
 import { getSettings, invoiceAssets } from '@/lib/settings';
 import { getInvoice } from '@/lib/services/invoices';
-import { METERAI_THRESHOLD, terbilang } from '@/lib/domain/billing';
+import { terbilang } from '@/lib/domain/billing';
 import { formatDate } from '@/lib/dates';
 import { idr } from '@/lib/labels';
 import PrintToolbar from './PrintToolbar';
@@ -25,12 +25,12 @@ export default async function PrintInvoicePage({ params }) {
   const kwitansi = inv.docType === 'KWITANSI';
   const title = kwitansi ? 'KWITANSI' : 'INVOICE';
   const tiket = inv.layout === 'TIKET';
-  const needsMeterai = kwitansi && Number(inv.total) >= METERAI_THRESHOLD;
+  const meterai = inv.meterai;
   const note = inv.notes || (kwitansi ? doc.kwitansiNote : doc.invoiceNote);
 
   return (
     <div className="print-root">
-      <PrintToolbar number={inv.number} voided={inv.status === 'VOID'} />
+      <PrintToolbar number={inv.number} voided={inv.status === 'VOID'} meterai={meterai && !inv.meteraiSn} />
       <article className={`sheet ${tq ? 'sheet-tq' : 'sheet-ops'}`}>
         {inv.status === 'VOID' && <div className="sheet-void">DIBATALKAN</div>}
         {tq ? (
@@ -60,7 +60,7 @@ export default async function PrintInvoicePage({ params }) {
               <tr><td>Tanggal</td><td>{formatDate(inv.date, long)}</td></tr>
               {!kwitansi && <tr><td>Jatuh tempo</td><td>{formatDate(inv.dueDate, long)}</td></tr>}
               {inv.reference && <tr><td>No. PO / SPK</td><td>{inv.reference}</td></tr>}
-              <tr><td>Perihal</td><td>{kwitansi ? 'Kwitansi' : 'Invoice'}</td></tr>
+              {tq && <tr><td>Perihal</td><td>{kwitansi ? 'Kwitansi' : 'Invoice'}</td></tr>}
             </tbody>
           </table>
         </section>
@@ -103,7 +103,7 @@ export default async function PrintInvoicePage({ params }) {
           <div className="sign">
             <div>{company.city ? company.city + ', ' : ''}{formatDate(inv.date, long)}</div>
             <div className="sign-area">
-              {needsMeterai && <div className="meterai">e-Meterai</div>}
+              {meterai && <div className="meterai">e-Meterai</div>}
               {tq && assets.stamp && <img src={assets.stamp} alt="" className="stamp" />}
               {assets.signature && <img src={assets.signature} alt="" className="signature" />}
             </div>

@@ -47,6 +47,10 @@ export function parsePresenters(raw) {
 export const normalizePresenter = (v) => { const s = String(v ?? '').trim().toUpperCase().replace(/[^A-Z0-9]/g, ''); return s.length >= 2 && s.length <= 12 ? s : null; };
 // Batas nilai dokumen yang wajib bermeterai (UU 10/2020): Rp5.000.000.
 export const METERAI_THRESHOLD = 5_000_000;
+/** Kwitansi bernilai ≥ Rp5.000.000 wajib bermeterai; invoice boleh memakai e-Meterai bila diminta Copart. */
+export const meteraiRequired = (docType, total) => docType === 'KWITANSI' && Number(total) >= METERAI_THRESHOLD;
+/** No. seri e-Meterai: huruf/angka kapital (umumnya 22 karakter). */
+export const normalizeMeteraiSn = (v) => { const s = String(v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, ''); return s || null; };
 
 export const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 export const EPS = 0.005;

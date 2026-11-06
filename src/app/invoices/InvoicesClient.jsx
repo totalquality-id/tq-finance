@@ -3,12 +3,12 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { Plus, Edit, Ban, HandCoins, Printer, Trash2, Send, PhoneCall, Download } from 'lucide-react';
+import { Plus, Edit, Ban, HandCoins, Printer, Trash2, Send, PhoneCall, Download, Stamp } from 'lucide-react';
 import { Badge, Card, DataTable, FilterBar, FormFields, Modal, Pager, Stat, useSubmit } from '@/components/ui';
 import { useDialog } from '@/components/DialogProvider';
 import { ItemsEditor, TotalsBox, blankItem, num, r2 } from '@/components/finance';
 import { addDays, formatDate, iso, todayIso } from '@/lib/dates';
-import { KINDS } from '@/lib/domain/billing';
+import { KINDS, meteraiRequired } from '@/lib/domain/billing';
 import { termKind } from '@/lib/domain/programs';
 import { idr, labelOf } from '@/lib/labels';
 
@@ -44,13 +44,14 @@ export default function InvoicesClient({ data, page, clients, projects, doc, ban
   const [pay, setPay] = useState(null);
   const [send, setSend] = useState(null);
   const [fu, setFu] = useState(null);
+  const [mtr, setMtr] = useState(null);
   const detail = data.rows.find((r) => r.id === detailId);
   const due = (from, clientId) => iso(addDays(new Date(from), clients.find((c) => c.id === clientId)?.paymentTermDays ?? doc.defaultDueDays));
 
   const openNew = (preset = {}) => {
     setItems(preset.items ?? [blankItem()]);
     setTaxMode('PPN_INCLUDED');
-    setForm({ series: 'TQ', docType: 'INVOICE', kind: 'TERMIN', layout: 'JASA', clientId: '', projectId: '', milestoneId: '', date: todayIso(), dueDate: iso(addDays(new Date(todayIso()), doc.defaultDueDays)), attn: '', reference: '', subject: '', taxInvoiceNo: '', notes: '', internalNote: '', seq: '', ...preset });
+    setForm({ series: 'TQ', docType: 'INVOICE', kind: 'TERMIN', layout: 'JASA', clientId: '', projectId: '', milestoneId: '', date: todayIso(), dueDate: iso(addDays(new Date(todayIso()), doc.defaultDueDays)), attn: '', reference: '', subject: '', taxInvoiceNo: '', notes: '', internalNote: '', seq: '', meterai: false, ...preset });
   };
   const termItem = (p, m) => [{ description: `Jasa ${p.standard ?? p.name} — ${m.name}`, detail: `Termin ${m.sequence}/${p._count.milestones}`, amount: Number(m.amount) }];
   const termPreset = (p, m) => ({ kind: termKind(m.name, m.sequence - 1, p._count.milestones), subject: '' });
@@ -70,7 +71,7 @@ export default function InvoicesClient({ data, page, clients, projects, doc, ban
   const openEdit = (r) => {
     setItems(r.items.map((it) => ({ ...blankItem(), ...it, detail: it.detail ?? '', route: it.route ?? '', ref: it.ref ?? '' })));
     setTaxMode(r.taxMode);
-    setForm({ id: r.id, number: r.number, series: r.series, docType: r.docType, kind: r.kind, layout: r.layout, clientId: r.clientId, projectId: r.projectId ?? '', milestoneId: '', date: iso(r.date), dueDate: iso(r.dueDate), attn: r.attn ?? '', reference: r.reference ?? '', subject: r.subject ?? '', taxInvoiceNo: r.taxInvoiceNo ?? '', notes: r.notes ?? '', internalNote: r.internalNote ?? '', seq: '' });
+    setForm({ id: r.id, number: r.number, series: r.series, docType: r.docType, kind: r.kind, layout: r.layout, clientId: r.clientId, projectId: r.projectId ?? '', milestoneId: '', date: iso(r.date), dueDate: iso(r.dueDate), attn: r.attn ?? '', reference: r.reference ?? '', subject: r.subject ?? '', taxInvoiceNo: r.taxInvoiceNo ?? '', notes: r.notes ?? '', internalNote: r.internalNote ?? '', seq: '', meterai: r.meterai });
   };
 
   const setValues = (fn) => setForm((s) => {
@@ -112,6 +113,7 @@ export default function InvoicesClient({ data, page, clients, projects, doc, ban
     const { invoiceId, number: _n, ...body } = pay;
     if (await submit(`/api/invoices/${invoiceId}/payments`, { body: { ...body, amount: num(body.amount), pph23: num(body.pph23), bankFee: num(body.bankFee) } })) setPay(null);
   };
+  const saveMeterai = async (e) => { e.preventDefault(); const { invoiceId, ...body } = mtr; if (await submit(`/api/invoices/${invoiceId}/meterai`, { method: 'PUT', body })) setMtr(null); };
   const saveSend = async (e) => { e.preventDefault(); const { invoiceId, ...body } = send; if (await submit(`/api/invoices/${invoiceId}/send`, { body })) setSend(null); };
   const saveFu = async (e) => { e.preventDefault(); const { invoiceId, ...body } = fu; if (await submit(`/api/invoices/${invoiceId}/follow-ups`, { body })) setFu(null); };
 
@@ -174,6 +176,7 @@ export default function InvoicesClient({ data, page, clients, projects, doc, ban
               <div><dt>No. PO / SPK</dt><dd>{detail.reference ?? '-'}</dd></div>
               <div><dt>Attn.</dt><dd>{detail.attn ?? '-'}</dd></div>
               <div><dt>Faktur pajak</dt><dd>{detail.taxInvoiceNo ?? '-'}</dd></div>
+              <div><dt>e-Meterai</dt><dd>{detail.meterai ? (detail.meteraiSn ?? 'Belum dibubuhkan') : '-'}</dd></div>
               <div><dt>Dikirim</dt><dd>{detail.sentAt ? `${formatDate(detail.sentAt)} · ${labelOf(detail.sentVia)}${detail.sentNote ? ' · ' + detail.sentNote : ''}` : 'Belum dikirim'}</dd></div>
               <div><dt>Follow up berikutnya</dt><dd>{detail.nextFollowUpAt ? formatDate(detail.nextFollowUpAt) : '-'}</dd></div>
               {detail.internalNote && <div style={{ gridColumn: '1 / -1' }}><dt>Catatan internal</dt><dd>{detail.internalNote}</dd></div>}
@@ -216,6 +219,7 @@ export default function InvoicesClient({ data, page, clients, projects, doc, ban
                 <>
                   {detail.payments.length === 0 && <button className="btn btn-danger-outline btn-sm" onClick={() => voidIt(detail)}><Ban size={15} /> Batalkan</button>}
                   {detail.payments.length === 0 && <button className="btn btn-outline btn-sm" onClick={() => { const r = detail; setDetailId(null); openEdit(r); }}><Edit size={15} /> Edit</button>}
+                  <button className="btn btn-outline btn-sm" onClick={() => setMtr({ invoiceId: detail.id, number: detail.number, meterai: detail.meterai || meteraiRequired(detail.docType, detail.total), meteraiSn: detail.meteraiSn ?? '' })}><Stamp size={15} /> e-Meterai</button>
                   {detail.status !== 'PAID' && <button className="btn btn-outline btn-sm" onClick={() => setSend({ invoiceId: detail.id, sentAt: iso(detail.sentAt) ?? todayIso(), sentVia: detail.sentVia ?? 'EKSPEDISI', sentNote: detail.sentNote ?? '' })}><Send size={15} /> {detail.sentAt ? 'Ubah pengiriman' : 'Tandai terkirim'}</button>}
                   {detail.status !== 'PAID' && detail.sentAt && <button className="btn btn-outline btn-sm" onClick={() => setFu({ invoiceId: detail.id, date: todayIso(), channel: 'TELEPON', note: '', promiseDate: '' })}><PhoneCall size={15} /> Catat follow up</button>}
                   {detail.status !== 'PAID' && <button className="btn btn-primary btn-sm" onClick={() => setPay({ invoiceId: detail.id, number: detail.number, date: todayIso(), account: detail.series, amount: sisa(detail), pph23: '', bankFee: '', buktiPotongNo: '', notes: '' })}><HandCoins size={15} /> Terima pembayaran</button>}
@@ -223,6 +227,18 @@ export default function InvoicesClient({ data, page, clients, projects, doc, ban
               )}
             </div>
           </div>
+        )}
+      </Modal>
+
+      <Modal open={Boolean(mtr)} onClose={() => setMtr(null)} title="e-Meterai" subtitle={mtr?.number}>
+        {mtr && (
+          <form onSubmit={saveMeterai}>
+            <FormFields values={mtr} setValues={setMtr} fields={[
+              { name: 'meterai', label: 'Pakai e-Meterai', type: 'checkbox', span: true },
+              { name: 'meteraiSn', label: 'No. seri e-Meterai', span: true, hidden: (v) => !v.meterai, placeholder: 'Diisi setelah dibubuhkan di portal e-Meterai' },
+            ]} />
+            <div className="modal-footer" style={{ padding: '16px 0 0' }}><button type="button" className="btn btn-ghost" onClick={() => setMtr(null)}>Batal</button><button className="btn btn-primary" disabled={busy}>Simpan</button></div>
+          </form>
         )}
       </Modal>
 
@@ -288,6 +304,7 @@ export default function InvoicesClient({ data, page, clients, projects, doc, ban
               { name: 'layout', label: 'Format rincian', type: 'select', options: ['JASA', 'TIKET'], noEmpty: true },
               { name: 'subject', label: 'Judul rincian', placeholder: 'mis. Biaya Transportasi — Audit' },
               { name: 'taxInvoiceNo', label: 'No. faktur pajak', hidden: (v) => v.series !== 'TQ' },
+              { name: 'meterai', label: 'Pakai e-Meterai', type: 'checkbox' },
               ...(form.id ? [] : [{ name: 'seq', label: 'Nomor urut (kosongkan = otomatis)', type: 'number', min: 1 }]),
             ]} />
             <ItemsEditor items={items} setItems={setItems} layout={form.layout} />
@@ -296,6 +313,7 @@ export default function InvoicesClient({ data, page, clients, projects, doc, ban
                 <div className="form-group"><label className="form-label">Catatan pada dokumen</label><textarea className="form-input" rows={2} value={form.notes} placeholder={form.docType === 'KWITANSI' ? doc.kwitansiNote : doc.invoiceNote} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
                 <div className="form-group"><label className="form-label">Catatan internal</label><textarea className="form-input" rows={2} value={form.internalNote} onChange={(e) => setForm({ ...form, internalNote: e.target.value })} /></div>
                 <div className="muted">Rekening: {banks[form.series]}</div>
+                {!form.meterai && meteraiRequired(form.docType, items.reduce((t, it) => t + num(it.amount), 0)) && <div className="muted">Kwitansi ≥ Rp5.000.000 wajib bermeterai.</div>}
               </div>
               <TotalsBox items={items} series={form.series} taxMode={taxMode} setTaxMode={setTaxMode} ppnRate={doc.ppnRate} />
             </div>

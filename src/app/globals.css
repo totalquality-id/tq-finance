@@ -1633,6 +1633,7 @@ details.card[open] > summary::after { transform: rotate(-135deg) translateY(-3px
   .print-root { padding: 0; background: #fff; }
   .sheet { box-shadow: none; margin: 0; width: 210mm; min-height: 297mm; }
   .print-toolbar { display: none !important; }
+  .sign-area .meterai { border-color: transparent; color: transparent; } /* ruang kosong untuk e-Meterai di PDF */
 }
 @media (max-width: 860px) { .sheet { transform-origin: top left; } }
 
